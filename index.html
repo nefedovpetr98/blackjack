@@ -334,7 +334,7 @@ body {
     </div>
     <!-- проверка счёта -->
     <form class="count-form" id="panel-count" hidden autocomplete="off">
-      <div class="field"><label for="in-rc">Бегущий счёт (RC)</label>
+      <div class="field"><label for="in-rc">Бегущий счёт (RC), с учётом прошлых раундов</label>
         <div class="stepper">
           <button type="button" data-for="in-rc" data-d="-1" aria-label="Уменьшить">−</button>
           <input id="in-rc" inputmode="decimal" placeholder="0" required>
@@ -456,6 +456,7 @@ function shuffle() {
     const j = Math.floor(Math.random() * (i + 1)); [S.shoe[i], S.shoe[j]] = [S.shoe[j], S.shoe[i]];
   }
   S.dealt = 0; S.rc = SYS.irc || 0;
+  S.lastRc = S.rc;   // счёт, который игрок знает после прошлого раунда
 }
 function draw(visible = true) {
   const c = S.shoe.pop(); S.dealt++;
@@ -708,7 +709,8 @@ function finishRound() {
   $("tc-field").hidden = !askTC;
   $("in-tc").required = askTC;
   $("tc-decks").textContent = decksLeft().toFixed(1);
-  $("in-rc").value = "0"; $("in-tc").value = "0";
+  // подставляем счёт прошлого раунда: остаётся прибавить карты нового
+  $("in-rc").value = S.lastRc > 0 ? "+" + S.lastRc : String(S.lastRc); $("in-tc").value = "0";
   render();
   if (!$("feedback").textContent.includes("счёт")) say($("feedback").firstElementChild.innerHTML + " Теперь назови счёт.", $("feedback").className.replace("feedback", "").trim());
   setTimeout(() => $("in-rc").focus(), 50);
@@ -736,6 +738,7 @@ function checkCount(e) {
       lines.push(`<span><b class="r">❌ True count ≈ ${fmt(+exact.toFixed(1))}</b> (${fmt(S.rc)} / ${decksLeft().toFixed(1)} колод).</span>`);
     }
   }
+  S.lastRc = S.rc;
   $("count-result").innerHTML = lines.join("");
   S.phase = "bet";
   say("Выбери ставку и нажми «Раздать».");
