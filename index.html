@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Блэкджек: тренажёр счёта</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Libre+Bodoni:wght@500;700&family=Rubik:wght@400;500;600&display=swap">
+<style>
+/* Layout: one casino table that fills the screen — top rail with bank and stats,
+   felt with dealer above and player below, a wooden action rail at the bottom. */
+:root {
+  color-scheme: dark;
+  --felt: #0f5a3f;
+  --felt-deep: #08392a;
+  --felt-line: rgba(233, 214, 160, .55);
+  --gold: #e3c278;
+  --gold-soft: rgba(227, 194, 120, .18);
+  --wood: #3a2216;
+  --wood-hi: #5b3622;
+  --ink: #f4efe3;
+  --ink-dim: rgba(244, 239, 227, .66);
+  --card: #fbfaf6;
+  --card-edge: #d9d4c7;
+  --card-black: #1c1c22;
+  --card-red: #c3242f;
+  --back: #8f1d2c;
+  --back-2: #6d1420;
+  --good: #57d68d;
+  --bad: #ff7a6b;
+  --hit: #d9534f;
+  --stand: #e8c547;
+  --double: #3fae6a;
+  --split: #4a8fd9;
+  --display: "Cinzel", "Trajan Pro", Georgia, serif;
+  --card-face: "Libre Bodoni", "Bodoni 72", Georgia, serif;
+  --ui: "Rubik", system-ui, sans-serif;
+  --card-w: clamp(58px, 15vw, 92px);
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body {
+  background: radial-gradient(ellipse 120% 80% at 50% 35%, var(--felt) 0%, var(--felt-deep) 78%), var(--felt-deep);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 15px;
+  overflow-x: hidden;
+}
+.app {
+  position: relative; max-width: 980px; margin: 0 auto; min-height: 100%;
+  display: flex; flex-direction: column; gap: 10px;
+  padding-inline: 16px; padding-block: 12px 16px;
+}
+
+/* ---------- верхняя панель ---------- */
+.topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; justify-content: space-between; }
+.brand { font-family: var(--display); font-weight: 700; letter-spacing: .14em; font-size: 18px; color: var(--gold); }
+.brand small { display: block; font-family: var(--ui); font-weight: 400; letter-spacing: .04em; font-size: 12px; color: var(--ink-dim); }
+.stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.stat {
+  background: rgba(0,0,0,.25); border: 1px solid var(--gold-soft); border-radius: 999px;
+  padding: 5px 12px; font-size: 13px; color: var(--ink-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.stat b { color: var(--ink); font-weight: 600; }
+.tools { display: flex; gap: 6px; }
+.ghost {
+  font: 500 13px var(--ui); color: var(--gold); background: transparent;
+  border: 1px solid var(--gold-soft); border-radius: 8px; padding: 6px 10px; cursor: pointer;
+}
+.ghost:hover { background: var(--gold-soft); }
+.ghost[aria-pressed="true"] { background: var(--gold); color: var(--felt-deep); }
+
+/* ---------- стол ---------- */
+.table {
+  position: relative; flex: 1; display: grid; grid-template-rows: auto auto 1fr; gap: 8px;
+  min-height: 430px; padding-block: 8px;
+}
+.shoe {
+  position: absolute; right: 0; top: 4px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--ink-dim); text-align: center;
+}
+.shoe-box {
+  width: 44px; height: 58px; border-radius: 6px 6px 14px 6px; position: relative;
+  background: linear-gradient(160deg, #2a2a2e, #111114); border: 1px solid #000; box-shadow: 0 6px 12px rgba(0,0,0,.4);
+}
+.shoe-box::after {
+  content: ""; position: absolute; inset: 8px 6px 14px 10px; border-radius: 3px;
+  background: repeating-linear-gradient(45deg, var(--back) 0 4px, var(--back-2) 4px 8px);
+}
+.tray { width: 44px; height: 8px; border-radius: 4px; background: rgba(0,0,0,.35); overflow: hidden; }
+.tray i { display: block; height: 100%; background: var(--gold); width: 0; transition: width .4s; }
+
+.zone { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.zone-label {
+  font-family: var(--display); letter-spacing: .2em; font-size: 12px; color: var(--gold); text-transform: uppercase;
+  display: flex; gap: 8px; align-items: center;
+}
+.total {
+  font-family: var(--ui); letter-spacing: 0; font-size: 13px; font-weight: 600; color: var(--felt-deep);
+  background: var(--gold); border-radius: 999px; padding: 1px 9px; min-width: 26px; text-align: center;
+}
+.total:empty { display: none; }
+
+.felt-print {
+  text-align: center; font-family: var(--display); color: var(--felt-line);
+  display: flex; flex-direction: column; gap: 2px; padding-block: 4px; user-select: none;
+}
+.felt-print .big { font-size: clamp(15px, 3.6vw, 22px); letter-spacing: .3em; font-weight: 700; }
+.felt-print .small { font-size: clamp(10px, 2.2vw, 12px); letter-spacing: .22em; }
+.felt-print .arc { width: min(520px, 100%); height: 18px; margin: 0 auto; border-top: 1px solid var(--felt-line); border-radius: 50% 50% 0 0 / 100% 100% 0 0; }
+
+.hands { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px 28px; min-height: calc(var(--card-w) * 1.4 + 34px); }
+.hand {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 8px 8px;
+  border-radius: 14px; border: 2px solid transparent; transition: border-color .2s, background .2s;
+}
+.hand.active { border-color: var(--gold); background: rgba(227,194,120,.08); }
+.hand-meta { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--ink-dim); min-height: 22px; }
+.outcome { font-weight: 600; font-size: 12px; border-radius: 6px; padding: 2px 8px; }
+.outcome.win { background: var(--good); color: #082a1b; }
+.outcome.lose { background: var(--bad); color: #3a0b06; }
+.outcome.push { background: var(--ink-dim); color: #102018; }
+
+.cards { display: flex; min-height: calc(var(--card-w) * 1.4); }
+.cards .card + .card { margin-left: calc(var(--card-w) * -0.58); }
+
+/* ---------- карта ---------- */
+.card {
+  width: var(--card-w); aspect-ratio: 5 / 7; max-width: 100%; position: relative; perspective: 800px;
+  animation: deal .38s cubic-bezier(.2,.8,.25,1) both;
+  contain: layout paint;
+}
+@keyframes deal {
+  from { transform: translate(38vw, -32vh) rotate(-25deg); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.card-inner { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform .5s; }
+.card.down .card-inner { transform: rotateY(180deg); }
+.face, .back {
+  position: absolute; inset: 0; border-radius: calc(var(--card-w) * .09); backface-visibility: hidden;
+  box-shadow: 0 4px 8px rgba(0,0,0,.3);
+}
+.face { background: var(--card); border: 1px solid var(--card-edge); color: var(--card-black); font-family: var(--card-face); }
+.face.red { color: var(--card-red); }
+.corner {
+  position: absolute; display: flex; flex-direction: column; align-items: center; line-height: .9;
+  font-weight: 700; font-size: calc(var(--card-w) * .22);
+}
+.corner span:last-child { font-size: calc(var(--card-w) * .2); }
+.corner.tl { top: 6%; left: 8%; }
+.corner.br { bottom: 6%; right: 8%; transform: rotate(180deg); }
+.pip { position: absolute; inset: 0; display: grid; place-items: center; font-size: calc(var(--card-w) * .5); }
+.pip.court {
+  inset: 20% 22%; border: 1px solid currentColor; border-radius: 4px; font-size: calc(var(--card-w) * .32);
+  background: linear-gradient(135deg, rgba(227,194,120,.25), transparent 60%);
+  flex-direction: column; font-weight: 700;
+}
+.back {
+  transform: rotateY(180deg); border: 4px solid var(--card);
+  background:
+    repeating-linear-gradient(45deg, transparent 0 5px, rgba(255,255,255,.08) 5px 6px),
+    repeating-linear-gradient(-45deg, transparent 0 5px, rgba(255,255,255,.08) 5px 6px),
+    linear-gradient(135deg, var(--back), var(--back-2));
+}
+.back::after {
+  content: "♠"; position: absolute; inset: 0; display: grid; place-items: center;
+  color: rgba(255,255,255,.35); font-size: calc(var(--card-w) * .34);
+}
+
+/* ---------- подсказка-фидбек ---------- */
+.feedback {
+  min-height: 46px; display: flex; align-items: center; justify-content: center; text-align: center;
+  font-size: 15px; padding: 8px 14px; border-radius: 12px; background: rgba(0,0,0,.28);
+  border: 1px solid transparent; transition: border-color .2s;
+}
+.feedback.good { border-color: var(--good); }
+.feedback.bad { border-color: var(--bad); }
+.feedback b.g { color: var(--good); } .feedback b.r { color: var(--bad); }
+
+/* ---------- деревянная панель действий ---------- */
+.rail {
+  background: linear-gradient(180deg, var(--wood-hi), var(--wood)); border-radius: 18px;
+  padding: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 10px 24px rgba(0,0,0,.35);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+.act {
+  font: 600 15px var(--ui); color: #fff; border: 0; border-radius: 12px; padding: 12px 18px; min-width: 104px;
+  cursor: pointer; box-shadow: 0 3px 0 rgba(0,0,0,.35); transition: transform .08s, filter .15s, opacity .2s;
+}
+.act kbd { font: 500 11px var(--ui); opacity: .75; margin-left: 6px; }
+.act:hover:not(:disabled) { filter: brightness(1.1); }
+.act:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,.35); }
+.act:disabled { opacity: .3; cursor: not-allowed; }
+.act.hit { background: var(--hit); }
+.act.stand { background: var(--stand); color: #3b2e00; }
+.act.double { background: var(--double); }
+.act.split { background: var(--split); }
+.act.deal { background: var(--gold); color: #2b1a0b; min-width: 180px; }
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+.chips { display: flex; gap: 8px; align-items: center; }
+.chip {
+  width: 50px; height: 50px; border-radius: 50%; border: 0; cursor: pointer; position: relative;
+  font: 700 13px var(--ui); color: #fff; box-shadow: 0 3px 0 rgba(0,0,0,.4);
+  background: radial-gradient(circle, var(--c) 0 52%, #fff 52% 56%, var(--c) 56% 100%);
+  outline: 3px dashed rgba(255,255,255,.55); outline-offset: -7px;
+}
+.chip[aria-pressed="true"] { transform: translateY(-5px); box-shadow: 0 0 0 3px var(--gold), 0 8px 10px rgba(0,0,0,.4); }
+.chip:focus-visible { outline: 3px dashed rgba(255,255,255,.55); box-shadow: 0 0 0 3px var(--gold); }
+.bet-label { font-size: 13px; color: var(--ink-dim); }
+
+.count-form { display: flex; flex-wrap: wrap; gap: 8px 14px; justify-content: center; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 4px; white-space: nowrap; font-size: 12px; color: var(--ink-dim); }
+.field input {
+  width: 120px; font: 600 18px var(--ui); text-align: center; color: var(--ink); background: rgba(0,0,0,.35);
+  border: 1px solid var(--gold-soft); border-radius: 10px; padding: 8px; font-variant-numeric: tabular-nums;
+}
+.field input:focus { border-color: var(--gold); outline: none; }
+.count-result { font-size: 14px; text-align: center; display: flex; flex-direction: column; gap: 3px; }
+
+/* ---------- окно с таблицей стратегии ---------- */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 16px; z-index: 10; }
+.sheet {
+  background: var(--felt-deep); border: 1px solid var(--gold-soft); border-radius: 16px; padding: 16px;
+  max-width: 720px; width: 100%; max-height: 90vh; overflow: auto; display: flex; flex-direction: column; gap: 10px;
+}
+.sheet h2 { margin: 0; font-family: var(--display); color: var(--gold); letter-spacing: .12em; font-size: 18px; }
+.sheet p { margin: 0; color: var(--ink-dim); font-size: 13px; }
+.chart-wrap { overflow-x: auto; }
+.chart { border-collapse: collapse; table-layout: fixed; width: 352px; font-size: 12px; font-variant-numeric: tabular-nums; margin: 0 auto; }
+.chart th, .chart td { width: 34px; height: 24px; text-align: center; border: 1px solid rgba(0,0,0,.35); }
+.chart th { color: var(--gold); font-weight: 600; }
+.chart th.sec { text-align: left; padding: 8px 0 4px; border: 0; letter-spacing: .12em; font-family: var(--display); }
+.chart td.H { background: var(--hit); } .chart td.S { background: var(--stand); color: #3b2e00; }
+.chart td.D, .chart td.Ds { background: var(--double); } .chart td.P { background: var(--split); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-dim); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+
+.toast {
+  position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 14px); transform: translateX(-50%);
+  background: var(--gold); color: #2b1a0b; font-weight: 600; padding: 8px 16px; border-radius: 999px; z-index: 20;
+  box-shadow: 0 8px 20px rgba(0,0,0,.4);
+}
+.live-count { color: var(--gold); }
+
+@media (max-width: 520px) {
+  .act { min-width: 0; flex: 1 1 40%; padding: 12px 8px; }
+  .act kbd { display: none; }
+  .shoe { display: none; }
+  .chip { width: 44px; height: 44px; font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card { animation: none; }
+  .card-inner { transition: none; }
+}
+</style>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">BLACKJACK<small>тренажёр базовой стратегии и счёта Hi-Lo</small></div>
+    <div class="stats" aria-live="polite">
+      <span class="stat">Банк <b id="st-bank">1000</b></span>
+      <span class="stat">Стратегия <b id="st-strat">—</b></span>
+      <span class="stat">Счёт <b id="st-rc">—</b></span>
+      <span class="stat">True count <b id="st-tc">—</b></span>
+      <span class="stat" id="live-wrap" hidden>RC сейчас <b class="live-count" id="live-rc">0</b></span>
+    </div>
+    <div class="tools">
+      <button class="ghost" id="btn-chart" type="button">Таблица стратегии</button>
+      <button class="ghost" id="btn-peek" type="button" aria-pressed="false">Показывать счёт</button>
+    </div>
+  </header>
+
+  <main class="table">
+    <div class="shoe" aria-label="Шуз">
+      <div class="shoe-box"></div>
+      <div class="tray" title="Сброс"><i id="tray-fill"></i></div>
+      <div id="decks-left">6.0 колод</div>
+    </div>
+
+    <section class="zone">
+      <div class="zone-label">Дилер <span class="total" id="dealer-total"></span></div>
+      <div class="cards" id="dealer-cards"></div>
+    </section>
+
+    <div class="felt-print" aria-hidden="true">
+      <div class="arc"></div>
+      <div class="big">BLACKJACK PAYS 3 TO 2</div>
+      <div class="small">ДИЛЕР СТОИТ НА ВСЕХ 17 · 6 КОЛОД · УДВОЕНИЕ ПОСЛЕ СПЛИТА</div>
+    </div>
+
+    <section class="zone">
+      <div class="hands" id="hands"></div>
+      <div class="zone-label">Игрок</div>
+    </section>
+  </main>
+
+  <div class="feedback" id="feedback" aria-live="polite">Выбери ставку и нажми «Раздать».</div>
+
+  <div class="rail">
+    <!-- ставка -->
+    <div class="row" id="panel-bet">
+      <span class="bet-label">Ставка</span>
+      <div class="chips" id="chips"></div>
+      <button class="act deal" id="btn-deal" type="button">Раздать <kbd>Enter</kbd></button>
+    </div>
+    <!-- действия -->
+    <div class="row" id="panel-play" hidden>
+      <button class="act hit" data-a="H" type="button">Взять <kbd>H</kbd></button>
+      <button class="act stand" data-a="S" type="button">Стоп <kbd>S</kbd></button>
+      <button class="act double" data-a="D" type="button">Удвоить <kbd>D</kbd></button>
+      <button class="act split" data-a="P" type="button">Сплит <kbd>P</kbd></button>
+    </div>
+    <!-- проверка счёта -->
+    <form class="count-form" id="panel-count" hidden autocomplete="off">
+      <label class="field" for="in-rc">Бегущий счёт (RC)
+        <input id="in-rc" inputmode="numeric" placeholder="например +3" required>
+      </label>
+      <label class="field" for="in-tc" id="tc-field">True count (колод ≈ <span id="tc-decks">6</span>)
+        <input id="in-tc" inputmode="decimal" placeholder="например 1.5">
+      </label>
+      <button class="act deal" type="submit">Проверить <kbd>Enter</kbd></button>
+    </form>
+    <div class="count-result" id="count-result" hidden></div>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="chart-title">
+    <h2 id="chart-title">Базовая стратегия</h2>
+    <p>6 колод, дилер стоит на мягких 17, удвоение после сплита разрешено. Столбцы: открытая карта дилера.</p>
+    <div class="legend">
+      <span><i style="background:var(--hit)"></i>Взять</span>
+      <span><i style="background:var(--stand)"></i>Стоп</span>
+      <span><i style="background:var(--double)"></i>Удвоить (D — иначе взять, Ds — иначе стоп)</span>
+      <span><i style="background:var(--split)"></i>Сплит</span>
+    </div>
+    <div class="chart-wrap"><table class="chart" id="chart"></table></div>
+    <div class="row"><button class="act deal" id="btn-close" type="button">Закрыть</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+// ================== Карты и шуз ==================
+const RANKS = ["2","3","4","5","6","7","8","9","10","J","Q","K","A"];
+const SUITS = ["♠","♥","♦","♣"];
+const DECKS = 6, PENETRATION = 0.75, TC_EVERY = 3;
+const CHIPS = [{v:10,c:"#2f6fb5"},{v:25,c:"#2f9a57"},{v:50,c:"#c0392b"},{v:100,c:"#222"}];
+
+const value = c => c.r === "A" ? 11 : ("JQK".includes(c.r) ? 10 : +c.r);
+const hilo = c => { const v = value(c); return v <= 6 ? 1 : v >= 10 ? -1 : 0; };
+
+function total(cards) {
+  let t = 0, aces = 0;
+  for (const c of cards) { t += value(c); if (c.r === "A") aces++; }
+  while (t > 21 && aces) { t -= 10; aces--; }
+  return { t, soft: aces > 0 };
+}
+const isBJ = cards => cards.length === 2 && total(cards).t === 21;
+
+// ================== Базовая стратегия (6 колод, S17, DAS) ==================
+function strategy(cards, up, canDouble, canSplit) {
+  const u = value(up);
+  const { t, soft } = total(cards);
+  if (canSplit && cards.length === 2 && value(cards[0]) === value(cards[1])) {
+    const p = value(cards[0]);
+    const split = { 11: true, 10: false, 9: [2,3,4,5,6,8,9].includes(u), 8: true, 7: u <= 7,
+                    6: u <= 6, 5: false, 4: u === 5 || u === 6, 3: u <= 7, 2: u <= 7 }[p];
+    if (split) return "P";
+  }
+  let a;
+  if (soft) {
+    if (t >= 19) a = "S";
+    else if (t === 18) a = (u >= 3 && u <= 6) ? "Ds" : ([2,7,8].includes(u) ? "S" : "H");
+    else if (t === 17) a = (u >= 3 && u <= 6) ? "D" : "H";
+    else if (t >= 15) a = (u >= 4 && u <= 6) ? "D" : "H";
+    else a = (u === 5 || u === 6) ? "D" : "H";
+  } else {
+    if (t >= 17) a = "S";
+    else if (t >= 13) a = u <= 6 ? "S" : "H";
+    else if (t === 12) a = (u >= 4 && u <= 6) ? "S" : "H";
+    else if (t === 11) a = u <= 10 ? "D" : "H";
+    else if (t === 10) a = u <= 9 ? "D" : "H";
+    else if (t === 9) a = (u >= 3 && u <= 6) ? "D" : "H";
+    else a = "H";
+  }
+  return { raw: a, act: a === "D" ? (canDouble ? "D" : "H") : a === "Ds" ? (canDouble ? "D" : "S") : a };
+}
+const best = (...args) => { const s = strategy(...args); return typeof s === "string" ? s : s.act; };
+const NAMES = { H: "взять", S: "стоп", D: "удвоить", P: "сплит" };
+
+// ================== Состояние ==================
+const S = {
+  shoe: [], dealt: 0, rc: 0,
+  bank: 1000, bet: 25, round: 0,
+  phase: "bet", busy: false,
+  dealer: [], holeHidden: true,
+  hands: [], active: 0,
+  stats: { dec: 0, ok: 0, rcA: 0, rcOk: 0, tcA: 0, tcOk: 0 },
+  peek: false,
+};
+
+function shuffle() {
+  S.shoe = [];
+  for (let d = 0; d < DECKS; d++) for (const r of RANKS) for (const s of SUITS) S.shoe.push({ r, s });
+  for (let i = S.shoe.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1)); [S.shoe[i], S.shoe[j]] = [S.shoe[j], S.shoe[i]];
+  }
+  S.dealt = 0; S.rc = 0;
+}
+function draw(visible = true) {
+  const c = S.shoe.pop(); S.dealt++;
+  if (visible) S.rc += hilo(c);
+  return c;
+}
+const decksLeft = () => S.shoe.length / 52;
+const sleep = ms => new Promise(r => setTimeout(r, matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : ms));
+
+// ================== Отрисовка ==================
+const $ = id => document.getElementById(id);
+
+function cardEl(c, down = false) {
+  const el = document.createElement("div");
+  el.className = "card" + (down ? " down" : "");
+  const red = c.s === "♥" || c.s === "♦";
+  const court = "JQK".includes(c.r);
+  el.innerHTML = `<div class="card-inner">
+      <div class="face${red ? " red" : ""}">
+        <div class="corner tl"><span>${c.r}</span><span>${c.s}</span></div>
+        <div class="pip${court ? " court" : ""}">${court ? c.r + "<br>" + c.s : c.s}</div>
+        <div class="corner br"><span>${c.r}</span><span>${c.s}</span></div>
+      </div>
+      <div class="back"></div>
+    </div>`;
+  el.setAttribute("aria-label", down ? "закрытая карта" : c.r + c.s);
+  return el;
+}
+
+function renderDealer() {
+  const box = $("dealer-cards");
+  // добавляем только новые карты, чтобы анимация раздачи играла один раз
+  while (box.children.length > S.dealer.length) box.lastChild.remove();
+  S.dealer.forEach((c, i) => {
+    if (!box.children[i]) box.appendChild(cardEl(c, i === 1 && S.holeHidden));
+    else if (i === 1 && !S.holeHidden) box.children[i].classList.remove("down");
+  });
+  const shown = S.holeHidden ? S.dealer.slice(0, 1) : S.dealer;
+  $("dealer-total").textContent = shown.length ? total(shown).t : "";
+}
+
+function renderHands() {
+  const wrap = $("hands");
+  // у каждой руки свой элемент: так после сплита карты не перепутаются
+  S.hands.forEach((h, i) => {
+    if (!h.el) {
+      h.el = document.createElement("div");
+      h.el.className = "hand";
+      h.el.innerHTML = `<div class="cards"></div><div class="hand-meta"><span class="total"></span><span class="bet"></span><span class="outcome" hidden></span></div>`;
+    }
+    if (wrap.children[i] !== h.el) wrap.insertBefore(h.el, wrap.children[i] || null);
+    const el = h.el;
+    const cbox = el.querySelector(".cards");
+    while (cbox.children.length > h.cards.length) cbox.lastChild.remove();
+    h.cards.forEach((c, k) => { if (!cbox.children[k]) cbox.appendChild(cardEl(c)); });
+    const { t, soft } = total(h.cards);
+    el.querySelector(".total").textContent = h.cards.length ? (soft && t < 21 && h.cards.length > 1 ? `${t - 10}/${t}` : t) : "";
+    el.querySelector(".bet").textContent = `ставка ${h.bet}`;
+    const out = el.querySelector(".outcome");
+    out.hidden = !h.result;
+    if (h.result) { out.textContent = h.result.text; out.className = "outcome " + h.result.kind; }
+    el.classList.toggle("active", S.phase === "play" && i === S.active && S.hands.length > 1);
+  });
+  while (wrap.children.length > S.hands.length) wrap.lastChild.remove();
+}
+
+function renderTop() {
+  const st = S.stats;
+  const pct = (a, b) => b ? `${Math.round(100 * a / b)}% (${a}/${b})` : "—";
+  $("st-bank").textContent = S.bank;
+  $("st-strat").textContent = pct(st.ok, st.dec);
+  $("st-rc").textContent = pct(st.rcOk, st.rcA);
+  $("st-tc").textContent = pct(st.tcOk, st.tcA);
+  $("live-wrap").hidden = !S.peek;
+  $("live-rc").textContent = (S.rc > 0 ? "+" : "") + S.rc;
+  $("decks-left").textContent = decksLeft().toFixed(1) + " колод";
+  $("tray-fill").style.width = (100 * S.dealt / (DECKS * 52)) + "%";
+}
+
+function renderPanels() {
+  $("panel-bet").hidden = S.phase !== "bet";
+  $("panel-play").hidden = S.phase !== "play";
+  $("panel-count").hidden = S.phase !== "count";
+  $("count-result").hidden = S.phase !== "bet" || !$("count-result").innerHTML;
+  document.querySelectorAll(".chip").forEach(ch => ch.setAttribute("aria-pressed", +ch.dataset.v === S.bet));
+  if (S.phase === "play") {
+    const h = S.hands[S.active];
+    const can = h ? allowed(h) : {};
+    document.querySelectorAll("#panel-play .act").forEach(b => {
+      b.disabled = S.busy || !can[b.dataset.a];
+    });
+  }
+}
+
+function render() { renderDealer(); renderHands(); renderTop(); renderPanels(); }
+
+function say(html, kind = "") {
+  const f = $("feedback");
+  f.innerHTML = `<span>${html}</span>`;
+  f.className = "feedback" + (kind ? " " + kind : "");
+}
+function toast(text) {
+  const t = $("toast"); t.textContent = text; t.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.hidden = true, 2600);
+}
+
+// ================== Игра ==================
+function allowed(h) {
+  const two = h.cards.length === 2;
+  return {
+    H: !h.done, S: !h.done,
+    D: !h.done && two && S.bank >= h.bet,
+    P: !h.done && two && value(h.cards[0]) === value(h.cards[1]) && S.hands.length < 4 && S.bank >= h.bet,
+  };
+}
+
+async function deal() {
+  if (S.busy || S.phase !== "bet") return;
+  if (S.dealt >= DECKS * 52 * PENETRATION) { shuffle(); toast("Шуз перемешан. Счёт снова с нуля."); }
+  if (S.bank < S.bet) { S.bank = 1000; toast("Банк закончился, начинаем снова с 1000 фишек."); }
+  S.busy = true;
+  S.round++;
+  $("count-result").innerHTML = "";
+  S.bank -= S.bet;
+  S.dealer = []; S.holeHidden = true;
+  S.hands = [{ cards: [], bet: S.bet, done: false, result: null }];
+  S.active = 0;
+  S.phase = "play";
+  say("Раздача…");
+  render();
+  const h = S.hands[0];
+  h.cards.push(draw()); render(); await sleep(260);
+  S.dealer.push(draw()); render(); await sleep(260);
+  h.cards.push(draw()); render(); await sleep(260);
+  S.dealer.push(draw(false)); render(); await sleep(300);
+
+  if (isBJ(S.dealer) || isBJ(h.cards)) {
+    await revealHole();
+    if (isBJ(h.cards) && isBJ(S.dealer)) settleHand(h, "push", "ничья");
+    else if (isBJ(h.cards)) { settleHand(h, "win", "блэкджек!", 2.5); }
+    else settleHand(h, "lose", "у дилера блэкджек");
+    say(isBJ(h.cards) && !isBJ(S.dealer) ? "🎉 Блэкджек! Выплата 3 к 2." : "Раунд закончен сразу: на столе блэкджек.");
+    return finishRound();
+  }
+  S.busy = false;
+  say(`Твой ход. У тебя <b>${handText(h)}</b>, у дилера <b>${S.dealer[0].r}</b>.`);
+  render();
+}
+
+function handText(h) {
+  const { t, soft } = total(h.cards);
+  return (soft ? "мягкие " : "") + t;
+}
+
+async function act(choice) {
+  if (S.busy || S.phase !== "play") return;
+  const h = S.hands[S.active];
+  const can = allowed(h);
+  if (!can[choice]) return;
+  const up = S.dealer[0];
+  const right = best(h.cards, up, can.D, can.P);
+  S.stats.dec++;
+  const situation = `${handText(h)} против ${up.r}`;
+  if (choice === right) {
+    S.stats.ok++;
+    say(`<b class="g">✅ Молодец!</b> «${NAMES[choice]}» на ${situation} — верно по базовой стратегии.`, "good");
+  } else {
+    say(`<b class="r">❌ Ошибка.</b> На ${situation} правильно «${NAMES[right]}», а ты выбрал «${NAMES[choice]}». Играем твой вариант.`, "bad");
+  }
+  S.busy = true; render();
+
+  if (choice === "S") h.done = true;
+  if (choice === "H") {
+    h.cards.push(draw()); render(); await sleep(300);
+    if (total(h.cards).t >= 21) h.done = true;
+  }
+  if (choice === "D") {
+    S.bank -= h.bet; h.bet *= 2;
+    h.cards.push(draw()); render(); await sleep(300);
+    h.done = true;
+  }
+  if (choice === "P") {
+    S.bank -= h.bet;
+    const second = { cards: [h.cards.pop()], bet: h.bet, done: false, result: null };
+    S.hands.splice(S.active + 1, 0, second);
+    render(); await sleep(200);
+    h.cards.push(draw()); render(); await sleep(300);
+    if (h.cards[0].r === "A") { h.done = true; h.aces = true; second.aces = true; }
+    if (total(h.cards).t === 21) h.done = true;
+  }
+  await advance();
+}
+
+async function advance() {
+  // переходим к следующей незавершённой руке
+  while (S.active < S.hands.length && S.hands[S.active].done) {
+    S.active++;
+    const nh = S.hands[S.active];
+    if (nh && nh.cards.length === 1) {
+      render(); await sleep(200);
+      nh.cards.push(draw()); render(); await sleep(300);
+      if (nh.aces || total(nh.cards).t === 21) nh.done = true;
+      else say(`Следующая рука: <b>${handText(nh)}</b> против <b>${S.dealer[0].r}</b>.`);
+    }
+  }
+  if (S.active < S.hands.length) { S.busy = false; render(); return; }
+  await dealerPlays();
+}
+
+async function revealHole() {
+  S.holeHidden = false;
+  S.rc += hilo(S.dealer[1]);
+  render(); await sleep(550);
+}
+
+async function dealerPlays() {
+  S.phase = "dealer"; render();
+  await revealHole();
+  const alive = S.hands.some(h => total(h.cards).t <= 21);
+  if (alive) {
+    while (total(S.dealer).t < 17) { S.dealer.push(draw()); render(); await sleep(420); }
+  }
+  const d = total(S.dealer).t;
+  let net = 0;
+  for (const h of S.hands) {
+    const t = total(h.cards).t;
+    const before = S.bank;
+    if (t > 21) settleHand(h, "lose", "перебор");
+    else if (d > 21 || t > d) settleHand(h, "win", `+${h.bet}`, 2);
+    else if (t === d) settleHand(h, "push", "ничья");
+    else settleHand(h, "lose", `−${h.bet}`);
+    net += S.bank - before - h.bet;
+  }
+  const verdict = d > 21 ? `У дилера перебор (${d}).` : `У дилера ${d}.`;
+  const kind = net > 0 ? "good" : net < 0 ? "bad" : "";
+  say(`${verdict} Итог раунда: <b class="${net >= 0 ? "g" : "r"}">${net > 0 ? "+" : ""}${net}</b>. Теперь назови счёт.`, kind);
+  finishRound();
+}
+
+function settleHand(h, kind, text, mult = 0) {
+  if (kind === "push") S.bank += h.bet;
+  else if (kind === "win") S.bank += h.bet * mult;
+  h.result = { kind, text };
+}
+
+function finishRound() {
+  S.busy = false;
+  S.phase = "count";
+  const askTC = S.round % TC_EVERY === 0;
+  $("tc-field").hidden = !askTC;
+  $("in-tc").required = askTC;
+  $("tc-decks").textContent = decksLeft().toFixed(1);
+  $("in-rc").value = ""; $("in-tc").value = "";
+  render();
+  if (!$("feedback").textContent.includes("счёт")) say($("feedback").firstElementChild.innerHTML + " Теперь назови счёт.", $("feedback").className.replace("feedback", "").trim());
+  setTimeout(() => $("in-rc").focus(), 50);
+}
+
+function parseNum(s) { return parseFloat(String(s).trim().replace(",", ".").replace("−", "-")); }
+
+function checkCount(e) {
+  e.preventDefault();
+  const rc = parseNum($("in-rc").value);
+  if (Number.isNaN(rc)) { say("Введи бегущий счёт числом, например <b>+3</b> или <b>-2</b>."); return; }
+  const lines = [];
+  const fmt = n => (n > 0 ? "+" : "") + n;
+  S.stats.rcA++;
+  if (Math.round(rc) === S.rc) { S.stats.rcOk++; lines.push(`<span><b class="g">✅ Счёт верный:</b> ${fmt(S.rc)}</span>`); }
+  else lines.push(`<span><b class="r">❌ Бегущий счёт ${fmt(S.rc)}</b>, а ты сказал ${fmt(Math.round(rc))}.</span>`);
+
+  if (!$("tc-field").hidden) {
+    const tc = parseNum($("in-tc").value);
+    const exact = S.rc / decksLeft();
+    S.stats.tcA++;
+    if (!Number.isNaN(tc) && Math.abs(tc - exact) <= 0.5) {
+      S.stats.tcOk++; lines.push(`<span><b class="g">✅ True count верный:</b> ≈ ${fmt(+exact.toFixed(1))}</span>`);
+    } else {
+      lines.push(`<span><b class="r">❌ True count ≈ ${fmt(+exact.toFixed(1))}</b> (${fmt(S.rc)} / ${decksLeft().toFixed(1)} колод).</span>`);
+    }
+  }
+  $("count-result").innerHTML = lines.join("");
+  S.phase = "bet";
+  say("Выбери ставку и нажми «Раздать».");
+  render();
+  $("btn-deal").focus();
+}
+
+// ================== Таблица стратегии ==================
+function buildChart() {
+  const ups = ["2","3","4","5","6","7","8","9","10","A"].map(r => ({ r, s: "♠" }));
+  const head = `<tr><th></th>${ups.map(u => `<th>${u.r}</th>`).join("")}</tr>`;
+  const row = (label, cards, split) =>
+    `<tr><th>${label}</th>${ups.map(u => { const a = strategy(cards, u, true, split).raw; return `<td class="${a}">${a}</td>`; }).join("")}</tr>`;
+  const C = r => ({ r, s: "♥" });
+  let html = `<tr><th class="sec" colspan="11">Жёсткие суммы</th></tr>` + head;
+  const hard = { 8: ["6","2"], 9: ["7","2"], 10: ["7","3"], 11: ["8","3"], 12: ["10","2"], 13: ["10","3"],
+                 14: ["10","4"], 15: ["10","5"], 16: ["10","6"], 17: ["10","7"] };
+  for (const t in hard) html += row(t === "8" ? "≤8" : t === "17" ? "17+" : t, hard[t].map(C), false);
+  html += `<tr><th class="sec" colspan="11">Мягкие руки</th></tr>` + head;
+  for (const x of ["2","3","4","5","6","7","8","9"]) html += row(`A,${x}`, [C("A"), C(x)], false);
+  html += `<tr><th class="sec" colspan="11">Пары</th></tr>` + head;
+  for (const x of ["2","3","4","5","6","7","8","9","10","A"]) html += row(`${x},${x}`, [C(x), C(x)], true);
+  $("chart").innerHTML = html;
+}
+
+// ================== Управление ==================
+function setup() {
+  const chips = $("chips");
+  for (const ch of CHIPS) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.dataset.v = ch.v; b.style.setProperty("--c", ch.c);
+    b.textContent = ch.v; b.setAttribute("aria-label", `Ставка ${ch.v}`);
+    b.onclick = () => { S.bet = ch.v; renderPanels(); };
+    chips.appendChild(b);
+  }
+  $("btn-deal").onclick = deal;
+  document.querySelectorAll("#panel-play .act").forEach(b => b.onclick = () => act(b.dataset.a));
+  $("panel-count").addEventListener("submit", checkCount);
+  $("btn-peek").onclick = () => {
+    S.peek = !S.peek; $("btn-peek").setAttribute("aria-pressed", S.peek); renderTop();
+  };
+  $("btn-chart").onclick = () => { $("modal").hidden = false; $("btn-close").focus(); };
+  $("btn-close").onclick = () => { $("modal").hidden = true; };
+  $("modal").onclick = e => { if (e.target.id === "modal") $("modal").hidden = true; };
+
+  const keymap = { h: "H", р: "H", s: "S", ы: "S", d: "D", в: "D", p: "P", з: "P" };
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") { $("modal").hidden = true; return; }
+    if (e.target.tagName === "INPUT" || e.ctrlKey || e.metaKey || e.altKey) return;
+    const a = keymap[e.key.toLowerCase()];
+    if (a && S.phase === "play") { e.preventDefault(); act(a); }
+    else if (e.key === "Enter" && S.phase === "bet" && $("modal").hidden && e.target.tagName !== "BUTTON") { e.preventDefault(); deal(); }
+  });
+
+  buildChart();
+  shuffle();
+  render();
+}
+setup();
+</script>
+
+</body>
+</html>
