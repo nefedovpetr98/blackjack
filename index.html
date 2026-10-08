@@ -65,7 +65,7 @@ body {
   padding: 5px 12px; font-size: 13px; color: var(--ink-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .stat b { color: var(--ink); font-weight: 600; }
-.tools { display: flex; gap: 6px; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; }
 .ghost {
   font: 500 13px var(--ui); color: var(--gold); background: transparent;
   border: 1px solid var(--gold-soft); border-radius: 8px; padding: 6px 10px; cursor: pointer;
@@ -220,6 +220,21 @@ body {
   border: 1px solid var(--gold-soft); border-radius: 10px; padding: 8px; font-variant-numeric: tabular-nums;
 }
 .field input:focus { border-color: var(--gold); outline: none; }
+.stepper { display: flex; gap: 4px; align-items: center; }
+.stepper button {
+  width: 40px; height: 42px; border-radius: 10px; border: 1px solid var(--gold-soft); cursor: pointer;
+  background: rgba(0,0,0,.3); color: var(--gold); font: 600 20px var(--ui);
+}
+.stepper button.sign { width: 44px; font-size: 16px; }
+.stepper button:active { background: var(--gold-soft); }
+.stepper input { width: 84px; }
+.sys {
+  font: 500 13px var(--ui); color: var(--gold); background: rgba(0,0,0,.25);
+  border: 1px solid var(--gold-soft); border-radius: 8px; padding: 6px 8px;
+}
+.weights { border-collapse: collapse; font-size: 13px; margin: 0 auto; font-variant-numeric: tabular-nums; }
+.weights th, .weights td { padding: 4px 8px; text-align: center; border: 1px solid rgba(0,0,0,.35); }
+.weights th { color: var(--gold); }
 .count-result { font-size: 14px; text-align: center; display: flex; flex-direction: column; gap: 3px; }
 
 /* ---------- окно с таблицей стратегии ---------- */
@@ -228,6 +243,7 @@ body {
   background: var(--felt-deep); border: 1px solid var(--gold-soft); border-radius: 16px; padding: 16px;
   max-width: 720px; width: 100%; max-height: 90vh; overflow: auto; display: flex; flex-direction: column; gap: 10px;
 }
+.sheet > * { flex-shrink: 0; }
 .sheet h2 { margin: 0; font-family: var(--display); color: var(--gold); letter-spacing: .12em; font-size: 18px; }
 .sheet p { margin: 0; color: var(--ink-dim); font-size: 13px; }
 .chart-wrap { overflow-x: auto; }
@@ -243,7 +259,7 @@ body {
 .toast {
   position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 14px); transform: translateX(-50%);
   background: var(--gold); color: #2b1a0b; font-weight: 600; padding: 8px 16px; border-radius: 999px; z-index: 20;
-  box-shadow: 0 8px 20px rgba(0,0,0,.4);
+  box-shadow: 0 8px 20px rgba(0,0,0,.4); width: max-content; max-width: calc(100vw - 32px); text-align: center;
 }
 .live-count { color: var(--gold); }
 
@@ -261,7 +277,7 @@ body {
 
 <div class="app">
   <header class="topbar">
-    <div class="brand">BLACKJACK<small>тренажёр базовой стратегии и счёта Hi-Lo</small></div>
+    <div class="brand">BLACKJACK<small>тренажёр базовой стратегии и счёта <span id="sys-name">Hi-Lo</span></small></div>
     <div class="stats" aria-live="polite">
       <span class="stat">Банк <b id="st-bank">1000</b></span>
       <span class="stat">Стратегия <b id="st-strat">—</b></span>
@@ -270,6 +286,7 @@ body {
       <span class="stat" id="live-wrap" hidden>RC сейчас <b class="live-count" id="live-rc">0</b></span>
     </div>
     <div class="tools">
+      <select class="sys" id="sys" aria-label="Система счёта"></select>
       <button class="ghost" id="btn-chart" type="button">Таблица стратегии</button>
       <button class="ghost" id="btn-peek" type="button" aria-pressed="false">Показывать счёт</button>
     </div>
@@ -317,12 +334,22 @@ body {
     </div>
     <!-- проверка счёта -->
     <form class="count-form" id="panel-count" hidden autocomplete="off">
-      <label class="field" for="in-rc">Бегущий счёт (RC)
-        <input id="in-rc" inputmode="numeric" placeholder="например +3" required>
-      </label>
-      <label class="field" for="in-tc" id="tc-field">True count (колод ≈ <span id="tc-decks">6</span>)
-        <input id="in-tc" inputmode="decimal" placeholder="например 1.5">
-      </label>
+      <div class="field"><label for="in-rc">Бегущий счёт (RC)</label>
+        <div class="stepper">
+          <button type="button" data-for="in-rc" data-d="-1" aria-label="Уменьшить">−</button>
+          <input id="in-rc" inputmode="decimal" placeholder="0" required>
+          <button type="button" data-for="in-rc" data-d="1" aria-label="Увеличить">+</button>
+          <button type="button" class="sign" data-for="in-rc" data-d="sign" aria-label="Сменить знак">±</button>
+        </div>
+      </div>
+      <div class="field" id="tc-field"><label for="in-tc">True count (колод ≈ <span id="tc-decks">6</span>)</label>
+        <div class="stepper">
+          <button type="button" data-for="in-tc" data-d="-0.5" aria-label="Уменьшить">−</button>
+          <input id="in-tc" inputmode="decimal" placeholder="0">
+          <button type="button" data-for="in-tc" data-d="0.5" aria-label="Увеличить">+</button>
+          <button type="button" class="sign" data-for="in-tc" data-d="sign" aria-label="Сменить знак">±</button>
+        </div>
+      </div>
       <button class="act deal" type="submit">Проверить <kbd>Enter</kbd></button>
     </form>
     <div class="count-result" id="count-result" hidden></div>
@@ -339,6 +366,9 @@ body {
       <span><i style="background:var(--double)"></i>Удвоить (D — иначе взять, Ds — иначе стоп)</span>
       <span><i style="background:var(--split)"></i>Сплит</span>
     </div>
+    <h2>Веса карт: <span id="w-name">Hi-Lo</span></h2>
+    <p id="w-note"></p>
+    <div class="chart-wrap"><table class="weights" id="weights"></table></div>
     <div class="chart-wrap"><table class="chart" id="chart"></table></div>
     <div class="row"><button class="act deal" id="btn-close" type="button">Закрыть</button></div>
   </div>
@@ -353,7 +383,21 @@ const DECKS = 6, PENETRATION = 0.75, TC_EVERY = 3;
 const CHIPS = [{v:10,c:"#2f6fb5"},{v:25,c:"#2f9a57"},{v:50,c:"#c0392b"},{v:100,c:"#222"}];
 
 const value = c => c.r === "A" ? 11 : ("JQK".includes(c.r) ? 10 : +c.r);
-const hilo = c => { const v = value(c); return v <= 6 ? 1 : v >= 10 ? -1 : 0; };
+// Системы счёта: вес карты по её очкам (11 = туз)
+const W = (a2, a3, a4, a5, a6, a7, a8, a9, a10, aA) => ({ 2: a2, 3: a3, 4: a4, 5: a5, 6: a6, 7: a7, 8: a8, 9: a9, 10: a10, 11: aA });
+const SYSTEMS = {
+  hilo:   { name: "Hi-Lo",       w: W(1, 1, 1, 1, 1, 0, 0, 0, -1, -1), note: "Самая популярная сбалансированная система." },
+  ko:     { name: "KO",          w: W(1, 1, 1, 1, 1, 1, 0, 0, -1, -1), irc: -4 * (DECKS - 1), noTC: true,
+            note: "Несбалансированная: true count не нужен. Счёт начинается с −20 (для 6 колод), ключевая точка около +4." },
+  hiopt1: { name: "Hi-Opt I",    w: W(0, 1, 1, 1, 1, 0, 0, 0, -1, 0), note: "Тузы и двойки не считаются." },
+  hiopt2: { name: "Hi-Opt II",   w: W(1, 1, 2, 2, 1, 1, 0, 0, -2, 0), note: "Двухуровневая система, тузы не считаются." },
+  omega2: { name: "Omega II",    w: W(1, 1, 2, 2, 2, 1, 0, -1, -2, 0), note: "Двухуровневая, девятки −1, тузы не считаются." },
+  zen:    { name: "Zen Count",   w: W(1, 1, 2, 2, 2, 1, 0, 0, -2, -1), note: "Двухуровневая, туз −1." },
+  halves: { name: "Wong Halves", w: W(.5, 1, 1, 1.5, 1, .5, 0, -.5, -1, -1), step: .5,
+            note: "Самая точная, с половинками. Шаг кнопок ± равен 0.5." },
+};
+let SYS = SYSTEMS.hilo;
+const hilo = c => SYS.w[value(c)];
 
 function total(cards) {
   let t = 0, aces = 0;
@@ -371,7 +415,7 @@ function strategy(cards, up, canDouble, canSplit) {
     const p = value(cards[0]);
     const split = { 11: true, 10: false, 9: [2,3,4,5,6,8,9].includes(u), 8: true, 7: u <= 7,
                     6: u <= 6, 5: false, 4: u === 5 || u === 6, 3: u <= 7, 2: u <= 7 }[p];
-    if (split) return "P";
+    if (split) return { raw: "P", act: "P" };
   }
   let a;
   if (soft) {
@@ -411,7 +455,7 @@ function shuffle() {
   for (let i = S.shoe.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1)); [S.shoe[i], S.shoe[j]] = [S.shoe[j], S.shoe[i]];
   }
-  S.dealt = 0; S.rc = 0;
+  S.dealt = 0; S.rc = SYS.irc || 0;
 }
 function draw(visible = true) {
   const c = S.shoe.pop(); S.dealt++;
@@ -530,7 +574,7 @@ function allowed(h) {
 
 async function deal() {
   if (S.busy || S.phase !== "bet") return;
-  if (S.dealt >= DECKS * 52 * PENETRATION) { shuffle(); toast("Шуз перемешан. Счёт снова с нуля."); }
+  if (S.dealt >= DECKS * 52 * PENETRATION) { shuffle(); toast(SYS.irc ? `Шуз перемешан. Счёт снова с ${SYS.irc}.` : "Шуз перемешан. Счёт снова с нуля."); }
   if (S.bank < S.bet) { S.bank = 1000; toast("Банк закончился, начинаем снова с 1000 фишек."); }
   S.busy = true;
   S.round++;
@@ -660,11 +704,11 @@ function settleHand(h, kind, text, mult = 0) {
 function finishRound() {
   S.busy = false;
   S.phase = "count";
-  const askTC = S.round % TC_EVERY === 0;
+  const askTC = !SYS.noTC && S.round % TC_EVERY === 0;
   $("tc-field").hidden = !askTC;
   $("in-tc").required = askTC;
   $("tc-decks").textContent = decksLeft().toFixed(1);
-  $("in-rc").value = ""; $("in-tc").value = "";
+  $("in-rc").value = "0"; $("in-tc").value = "0";
   render();
   if (!$("feedback").textContent.includes("счёт")) say($("feedback").firstElementChild.innerHTML + " Теперь назови счёт.", $("feedback").className.replace("feedback", "").trim());
   setTimeout(() => $("in-rc").focus(), 50);
@@ -679,8 +723,8 @@ function checkCount(e) {
   const lines = [];
   const fmt = n => (n > 0 ? "+" : "") + n;
   S.stats.rcA++;
-  if (Math.round(rc) === S.rc) { S.stats.rcOk++; lines.push(`<span><b class="g">✅ Счёт верный:</b> ${fmt(S.rc)}</span>`); }
-  else lines.push(`<span><b class="r">❌ Бегущий счёт ${fmt(S.rc)}</b>, а ты сказал ${fmt(Math.round(rc))}.</span>`);
+  if (Math.abs(rc - S.rc) < 0.01) { S.stats.rcOk++; lines.push(`<span><b class="g">✅ Счёт верный:</b> ${fmt(S.rc)}</span>`); }
+  else lines.push(`<span><b class="r">❌ Бегущий счёт ${fmt(S.rc)}</b>, а ты сказал ${fmt(rc)}.</span>`);
 
   if (!$("tc-field").hidden) {
     const tc = parseNum($("in-tc").value);
@@ -717,6 +761,18 @@ function buildChart() {
   $("chart").innerHTML = html;
 }
 
+function applySystem() {
+  SYS = SYSTEMS[$("sys").value] || SYSTEMS.hilo;
+  $("sys-name").textContent = SYS.name;
+  $("w-name").textContent = SYS.name;
+  $("w-note").textContent = SYS.note;
+  const labels = ["2","3","4","5","6","7","8","9","10","A"];
+  const fmt = n => (n > 0 ? "+" : "") + n;
+  $("weights").innerHTML = `<tr>${labels.map(l => `<th>${l}</th>`).join("")}</tr>` +
+    `<tr>${labels.map((l, i) => `<td>${fmt(SYS.w[i + 2])}</td>`).join("")}</tr>`;
+  $("st-tc").parentElement.hidden = !!SYS.noTC;
+}
+
 // ================== Управление ==================
 function setup() {
   const chips = $("chips");
@@ -745,6 +801,29 @@ function setup() {
     if (a && S.phase === "play") { e.preventDefault(); act(a); }
     else if (e.key === "Enter" && S.phase === "bet" && $("modal").hidden && e.target.tagName !== "BUTTON") { e.preventDefault(); deal(); }
   });
+
+  // кнопки − + ± у полей счёта (на iPhone в цифровой клавиатуре нет минуса)
+  document.querySelectorAll(".stepper button").forEach(b => b.onclick = () => {
+    const inp = $(b.dataset.for);
+    let v = parseNum(inp.value); if (Number.isNaN(v)) v = 0;
+    if (b.dataset.d === "sign") v = -v;
+    else v += +b.dataset.d * (b.dataset.for === "in-rc" ? (SYS.step || 1) : 1);
+    v = Math.round(v * 100) / 100;
+    inp.value = v > 0 ? "+" + v : String(v);
+  });
+
+  const sel = $("sys");
+  for (const k in SYSTEMS) sel.add(new Option(SYSTEMS[k].name, k));
+  let saved = "hilo";
+  try { saved = localStorage.getItem("bj-system") || "hilo"; } catch (e) {}
+  sel.value = SYSTEMS[saved] ? saved : "hilo";
+  sel.onchange = () => {
+    if (S.phase !== "bet") { toast("Систему можно сменить между раундами."); sel.value = Object.keys(SYSTEMS).find(k => SYSTEMS[k] === SYS); return; }
+    try { localStorage.setItem("bj-system", sel.value); } catch (e) {}
+    applySystem(); shuffle(); render();
+    toast(`Система ${SYS.name}. Новый шуз, счёт с ${SYS.irc || 0}.`);
+  };
+  applySystem();
 
   buildChart();
   shuffle();
