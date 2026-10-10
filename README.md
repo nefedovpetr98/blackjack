@@ -4,3 +4,5 @@
 
 - `index.html` — игра в браузере (открывается на GitHub Pages).
 - `blackjack_trainer.py` — консольная версия на Python: `python3 blackjack_trainer.py`.
+
+- `chess/` — тренажёр шахматных дебютов: https://nefedovpetr98.github.io/blackjack/chess/
