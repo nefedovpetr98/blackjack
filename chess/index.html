@@ -95,7 +95,10 @@ svg.arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(230,184,74,.5)}50%{box-shadow:0 0 0 6px rgba(230,184,74,0)}}
 .btn:disabled{opacity:.4}
 .endrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
-.moves{margin-top:12px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14.5px;line-height:1.7;color:#cfd9d5;min-height:42px}
+.endrow .wide{grid-column:1/3}
+.resume{border-color:var(--gold)}
+.resume .nm{color:var(--gold)}
+.moves{overflow-wrap:anywhere;margin-top:12px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14.5px;line-height:1.7;color:#cfd9d5;min-height:42px}
 .moves .n{color:var(--muted);margin-right:3px}
 .moves .m{margin-right:8px;white-space:nowrap}
 .moves .m.cur{background:var(--gold);color:#1b1a14;border-radius:5px;padding:1px 5px;font-weight:700}
@@ -148,7 +151,8 @@ svg.arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <button class="btn" id="restartBtn">⟲ Заново</button>
     </div>
     <div class="endrow" id="endRow" hidden>
-      <button class="btn main" id="nextBtn">Следующий вариант ›</button>
+      <button class="btn main wide" id="contBtn">▶ Играть дальше против компьютера</button>
+      <button class="btn" id="nextBtn">Следующий вариант ›</button>
       <button class="btn" id="againBtn">Ещё раз</button>
     </div>
     <div class="feed" id="feed"></div>
@@ -301,12 +305,20 @@ function negamax(s,d,a,bt,ply){
 }
 // оценка хода игрока: потеря по сравнению с лучшим ходом (в сотых пешки) и лучший ответ соперника
 function analyzeMove(s,mv){
-  const list=legal(s);let best=-Infinity,mine=null;
-  for(const m of list){const v=-negamax(make(s,m),2,-Infinity,Infinity,1);if(v>best)best=v;if(m.from===mv.from&&m.to===mv.to&&m.promo===mv.promo)mine=v;}
+  const list=legal(s);let best=-Infinity,mine=null,bestM=null;
+  for(const m of list){const v=-negamax(make(s,m),2,-Infinity,Infinity,1);if(v>best){best=v;bestM=m;}if(m.from===mv.from&&m.to===mv.to&&m.promo===mv.promo)mine=v;}
   const after=make(s,mv);let reply=null,rv=-Infinity;
   const rl=legal(after);
   for(const m of rl){const v=-negamax(make(after,m),1,-Infinity,Infinity,1);if(v>rv){rv=v;reply=m;}}
-  return {loss:best-mine,reply:reply?san(after,reply,rl):null,replyMove:reply};
+  return {loss:best-mine,reply:reply?san(after,reply,rl):null,replyMove:reply,best:bestM?san(s,bestM,list):null,bestMove:bestM};
+}
+// ход компьютера: случайный среди почти равных лучших
+function engineMove(s,spread){
+  const list=legal(s);if(!list.length)return null;
+  const sc=list.map(m=>({m,v:-negamax(make(s,m),2,-Infinity,Infinity,1)}));
+  const best=Math.max(...sc.map(x=>x.v));
+  const ok=sc.filter(x=>x.v>=best-(spread||0));
+  return ok[Math.floor(Math.random()*ok.length)].m;
 }
 // ==END ENGINE==
 
@@ -884,6 +896,10 @@ const G={op:null,pos:null,node:null,hist:[],moves:[],sel:-1,busy:false,lock:fals
 function renderMenu(){
   document.querySelectorAll('#modeSw button').forEach(b=>b.classList.toggle('on',b.dataset.m===MODE));
   const html=[];
+  const saved=OPENINGS.filter(o=>store.get('save:'+o.id,null));
+  if(saved.length){html.push('<div class="group">Незаконченные партии</div>');
+    for(const op of saved){const sv=store.get('save:'+op.id);
+      html.push(`<button class="card resume" data-id="${op.id}" data-resume="1"><div class="top"><div class="ico ${op.side}">▶</div><div><div class="nm">Продолжить: ${op.name}</div><div class="ds" style="margin-top:2px">Ходов сделано: ${Math.ceil(sv.moves.length/2)} · вы играете ${op.side==='w'?'белыми':'чёрными'}</div></div></div></button>`);}}
   for(const side of['w','b']){
     html.push(`<div class="group">${side==='w'?'Играем белыми':'Играем чёрными'}</div>`);
     for(const op of OPENINGS.filter(o=>o.side===side)){
@@ -896,7 +912,8 @@ function renderMenu(){
   }
   $('#list').innerHTML=html.join('');
 }
-$('#list').addEventListener('click',e=>{const c=e.target.closest('.card');if(c)openGame(OPENINGS.find(o=>o.id===c.dataset.id));});
+$('#list').addEventListener('click',e=>{const c=e.target.closest('.card');if(!c)return;const op=OPENINGS.find(o=>o.id===c.dataset.id);
+  if(c.dataset.resume)resumeGame(op);else openGame(op);});
 $('#modeSw').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;MODE=b.dataset.m;store.set('mode',MODE);renderMenu();});
 
 // ---------- доска ----------
@@ -992,7 +1009,7 @@ const delay=ms=>new Promise(r=>G.timer=setTimeout(r,ms));
 function label(s,str){return s.t==='w'?`${s.n}. ${ru(str)}`:`${s.n}... ${ru(str)}`;}
 function animsFor(m){const a=[{from:m.from,to:m.to}];if(m.fl==='k')a.push({from:m.to+1,to:m.to-1});if(m.fl==='q')a.push({from:m.to-2,to:m.to+1});return a;}
 function applyPly(m,str,anim){
-  G.hist.push({pos:G.pos,node:G.node,ml:G.moves.length,last:G.last});
+  G.hist.push({pos:G.pos,node:G.node,ml:G.moves.length,last:G.last,free:G.free});
   G.pos=make(G.pos,m);G.last={from:m.from,to:m.to};G.moves.push(str);G.sel=-1;
   renderBoard(anim?animsFor(m):null);renderMoves();
 }
@@ -1004,11 +1021,11 @@ function renderFeed(){
 function renderMoves(){
   const out=[];
   G.moves.forEach((m,i)=>{if(i%2===0)out.push(`<span class="n">${i/2+1}.</span>`);out.push(`<span class="m${i===G.moves.length-1?' cur':''}">${ru(m)}</span>`);});
-  $('#moves').innerHTML=out.join('')||'<span class="n">Ходов пока нет</span>';
+  $('#moves').innerHTML=out.join(' ')||'<span class="n">Ходов пока нет</span>';
 }
 function lineName(){let n=G.node;while(n){if(n.name)return n.name;n=n.parent;}return '';}
 function renderInfo(){
-  $('#lineName').textContent=lineName()||(G.op.side==='w'?'Вы играете белыми':'Вы играете чёрными');
+  $('#lineName').textContent=G.free?'Свободная игра против компьютера':(lineName()||(G.op.side==='w'?'Вы играете белыми':'Вы играете чёрными'));
   const ex=explored(G.op),done=G.op.leaves.filter(k=>ex.has(k)).length;
   $('#stVar').textContent=`${done}/${G.op.leaves.length}`;
   const st=statsOf(G.op);$('#stAcc').textContent=st.t?`${Math.round(st.c/st.t*100)}%`:'—';
@@ -1016,7 +1033,8 @@ function renderInfo(){
   $('#modeBtn').textContent=MODE==='learn'?'📖':'🎯';
   const my=G.pos.t===G.uc&&!G.done;
   const dot=`<span class="dot" style="background:${G.pos.t==='w'?'#f5f2ea':'#1d1d1d'}"></span>`;
-  $('#turnTxt').innerHTML=G.done?'Вариант завершён':G.lock?dot+'Верните ход и попробуйте снова':dot+(my?'Ваш ход':'Ход соперника…');
+  $('#turnTxt').innerHTML=G.over?'Партия окончена':G.done?'Вариант завершён':G.lock?dot+'Верните ход и попробуйте снова':dot+(my?'Ваш ход':G.free?'Компьютер думает…':'Ход соперника…');
+  $('#contBtn').hidden=!!G.over;
   $('#undoBtn').classList.toggle('pulse',G.lock&&!G.busy);
   $('#endRow').hidden=!G.done;
   $('#hintBtn').disabled=G.done;
@@ -1031,12 +1049,14 @@ function recordAttempt(ok){
   G.attempt.counted=true;const st=statsOf(G.op);st.t++;if(ok&&!G.attempt.hinted)st.c++;store.set('st:'+G.op.id,st);
 }
 function userTurn(){
+  if(G.free)return freeUserTurn();
   G.busy=false;G.lock=false;G.attempt={counted:false,hinted:false};
   G.arrows=MODE==='learn'?hintArrows():[];
   if(!G.node.kids.length)return finish();
   renderBoard();renderInfo();
 }
 async function onUserMove(m,anim){
+  if(G.free)return freeUserMove(m,anim);
   const before=G.pos,list=legal(before),str=san(before,m,list);
   const child=G.node.kids.find(k=>normSan(k.san)===normSan(str));
   const lbl=label(before,str);
@@ -1123,6 +1143,86 @@ function finish(){
   addEntry('done','🎉 Готово','',t);
   renderBoard();renderInfo();
 }
+// ---------- свободная игра после дебюта ----------
+const PNAME={p:'пешку',n:'коня',b:'слона',r:'ладью',q:'ферзя'};
+function saveGame(){store.set('save:'+G.op.id,{moves:G.moves.slice(),fs:G.freeStart});}
+function freeArrows(){const m=engineMove(G.pos);return m?[{from:m.from,to:m.to}]:[];}
+function gameOverText(){
+  const s=G.pos,ms=legal(s);
+  if(!ms.length){if(inCheck(s))return s.t===G.uc?'Мат. Компьютер выиграл — посмотрите, где была ошибка, и нажмите «↶ Назад».':'🏆 Мат! Вы победили!';return 'Пат — ничья.';}
+  if(s.h>=100)return 'Ничья: 50 ходов без взятий и ходов пешками.';
+  const left=s.b.filter(Boolean);if(left.length===2)return 'Ничья: остались одни короли.';
+  return null;
+}
+function endGame(t){
+  G.over=true;G.done=true;G.busy=false;G.arrows=[];
+  try{localStorage.removeItem('chessop:save:'+G.op.id);}catch(e){}
+  addEntry('done','Партия окончена','',t);renderBoard();renderInfo();
+}
+function startFree(){
+  G.free=true;G.freeStart=G.moves.length;G.done=false;G.over=false;G.lock=false;
+  G.feed=[{cls:'info',badge:'▶ Играем дальше',mv:'',text:'Теперь вы играете против компьютера. После каждого хода — оценка, а если ошибётесь, красная стрелка покажет, что может произойти. Партия сохраняется: её можно продолжить позже из меню.'}];
+  renderFeed();saveGame();
+  if(G.pos.t===G.uc)freeUserTurn();else{G.busy=true;renderInfo();delay(500).then(compMove);}
+}
+function freeUserTurn(){
+  G.busy=false;G.lock=false;G.attempt=null;
+  const t=gameOverText();if(t)return endGame(t);
+  G.arrows=MODE==='learn'?freeArrows():[];
+  renderBoard();renderInfo();
+}
+async function freeUserMove(m,anim){
+  const before=G.pos,str=san(before,m),lbl=label(before,str);
+  G.arrows=[];G.feed=[];
+  applyPly(m,str,anim);
+  G.busy=true;addEntry('info','Проверяю ход…',lbl,'');renderInfo();
+  await delay(60);
+  const r=analyzeMove(before,m);
+  G.feed.pop();
+  let cls,b,t;
+  if(r.loss<=10){cls='best';b='Лучший ход';t='Отличный ход — компьютер сыграл бы так же.';}
+  else if(r.loss<=45){cls='good';b='Хороший ход';t='Хороший ход.';}
+  else if(r.loss<=120){cls='dub';b='Неточность';t='Не лучший ход: позиция становится хуже.';}
+  else if(r.loss<=250){cls='bad';b='Ошибка';t='Этот ход заметно ухудшает позицию.';}
+  else{cls='blunder';b='Зевок';t='Этот ход теряет материал!';}
+  const warn=r.loss>120;
+  if(warn&&r.reply){t+=` Смотрите, что может произойти: соперник ответит <b>${ru(r.reply)}</b>.`;
+    if(r.replyMove)G.arrows=[{from:r.replyMove.from,to:r.replyMove.to,red:true}];}
+  if(r.loss>45&&r.best)t+=` Лучше было <b>${ru(r.best)}</b>.`;
+  if(warn)t+=' Можно нажать «↶ Назад» и переходить.';
+  addEntry(cls,b,lbl,t);saveGame();renderBoard();
+  const over=gameOverText();if(over)return endGame(over);
+  G.busy=!warn;renderInfo();
+  await delay(warn?1800:450);
+  if(!G.free||G.pos.t===G.uc)return;
+  G.busy=true;
+  compMove();
+}
+function compMove(){
+  if(!G.free)return;
+  const m=engineMove(G.pos,15);if(!m)return freeUserTurn();
+  const str=san(G.pos,m),lbl=label(G.pos,str);
+  const desc=[];if(m.cap)desc.push('Забирает '+PNAME[m.cap.toLowerCase()]+'.');
+  applyPly(m,str,true);
+  if(/#$/.test(str))desc.push('Мат.');else if(/\+$/.test(str))desc.push('Шах!');
+  addEntry('opp','Ход компьютера',lbl,desc.join(' '));saveGame();
+  freeUserTurn();
+}
+function resumeGame(op){
+  const sv=store.get('save:'+op.id,null);if(!sv)return openGame(op);
+  G.op=op;G.uc=op.side;
+  $('#menu').hidden=true;$('#game').hidden=false;$('#opName').textContent=op.name;window.scrollTo(0,0);
+  restart(true);
+  sv.moves.forEach((x,i)=>{
+    const m=findMove(G.pos,x);if(!m)return;
+    G.free=i>=sv.fs;
+    if(!G.free){const c=G.node.kids.find(k=>normSan(k.san)===normSan(x));if(c)G.node=c;}
+    applyPly(m,san(G.pos,m),false);
+  });
+  G.free=true;G.freeStart=sv.fs;G.last=G.last||null;
+  G.feed=[{cls:'info',badge:'▶ Партия продолжается',mv:'',text:'Вы вернулись к своей партии против компьютера.'}];renderFeed();
+  if(G.pos.t===G.uc)freeUserTurn();else{G.busy=true;renderInfo();delay(500).then(compMove);}
+}
 function undo(){
   if(G.busy)return;
   clearTimeout(G.timer);
@@ -1130,23 +1230,27 @@ function undo(){
   let h;
   while(G.hist.length){h=G.hist.pop();if(h.pos.t===G.uc)break;}
   if(h.pos.t!==G.uc){restart();return;}
-  G.pos=h.pos;G.node=h.node;G.moves.length=h.ml;G.last=h.last;G.done=false;
-  G.feed=[{cls:'info',badge:'Ход возвращён',mv:'',text:MODE==='learn'?'Зелёная стрелка показывает ход по теории.':'Попробуйте найти лучший ход. Если трудно — «💡 Подсказка».'}];
+  G.pos=h.pos;G.node=h.node;G.moves.length=h.ml;G.last=h.last;G.done=false;G.over=false;G.free=!!h.free;
+  if(G.free)saveGame();
+  G.feed=[{cls:'info',badge:'Ход возвращён',mv:'',text:G.free?(MODE==='learn'?'Зелёная стрелка показывает ход, который советует компьютер.':'Найдите ход получше. Если трудно — «💡 Подсказка».'):MODE==='learn'?'Зелёная стрелка показывает ход по теории.':'Попробуйте найти лучший ход. Если трудно — «💡 Подсказка».'}];
   renderFeed();renderMoves();userTurn();
 }
 function hint(){
   if(G.busy||G.done)return;
   if(G.lock){addEntry('info','Подсказка','','Сначала верните ход кнопкой «↶ Назад».');return;}
+  if(G.free){const m=engineMove(G.pos);if(!m)return;G.arrows=[{from:m.from,to:m.to}];renderBoard();
+    addEntry('info','💡 Подсказка','',`Компьютер советует: <b>${ru(san(G.pos,m))}</b>.`);return;}
   const best=bookBest(G.node);if(!best.length)return;
   if(G.attempt)G.attempt.hinted=true;
   G.arrows=hintArrows();renderBoard();
   addEntry('info','💡 Подсказка','',`Здесь по теории играют: <b>${best.map(k=>ru(k.san)).join(' или ')}</b>.`);
 }
-function restart(){
+function restart(noStart){
   clearTimeout(G.timer);
-  G.pos=startPos();G.node=G.op.root;G.hist=[];G.moves=[];G.sel=-1;G.last=null;G.done=false;G.lock=false;G.busy=false;G.arrows=[];
+  G.pos=startPos();G.node=G.op.root;G.hist=[];G.moves=[];G.sel=-1;G.last=null;G.done=false;G.over=false;G.free=false;G.lock=false;G.busy=false;G.arrows=[];
   G.feed=[{cls:'info',badge:G.op.side==='w'?'Вы — белые':'Вы — чёрные',mv:'',text:G.op.desc}];
   renderFeed();renderMoves();resize();
+  if(noStart===true)return;
   if(G.uc==='b'){G.busy=true;renderBoard();renderInfo();delay(700).then(oppMove);}
   else userTurn();
 }
@@ -1160,12 +1264,13 @@ function openGame(op){
 $('#backBtn').onclick=()=>{clearTimeout(G.timer);$('#game').hidden=true;$('#menu').hidden=false;renderMenu();};
 $('#undoBtn').onclick=undo;
 $('#hintBtn').onclick=hint;
-$('#restartBtn').onclick=restart;
-$('#againBtn').onclick=restart;
-$('#nextBtn').onclick=restart;
+$('#againBtn').onclick=()=>restart();
+$('#nextBtn').onclick=()=>restart();
+$('#restartBtn').onclick=()=>restart();
+$('#contBtn').onclick=startFree;
 $('#modeBtn').onclick=()=>{MODE=MODE==='learn'?'train':'learn';store.set('mode',MODE);
   addEntry('info',MODE==='learn'?'📖 Режим обучения':'🎯 Режим тренировки','',MODE==='learn'?'Зелёные стрелки показывают ход по теории.':'Стрелок нет — вспоминайте сами. Считается точность с первой попытки.');
-  if(!G.lock&&!G.busy&&!G.done&&G.pos.t===G.uc){G.arrows=MODE==='learn'?hintArrows():[];renderBoard();}
+  if(!G.lock&&!G.busy&&!G.done&&G.pos.t===G.uc){G.arrows=MODE==='learn'?(G.free?freeArrows():hintArrows()):[];renderBoard();}
   renderInfo();};
 renderMenu();
 // ==END UI==
