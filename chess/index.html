@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Дебютный тренажёр</title>
+<title>Шахматный тренажёр</title>
 <meta name="theme-color" content="#151b1a">
 <style>
 :root{
@@ -107,13 +107,29 @@ svg.arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .stat b{display:block;font-size:18px}
 .stat small{color:var(--muted);font-size:12px}
 [hidden]{display:none!important}
+.why{margin:6px 0 0;padding:0;list-style:none}
+.why li{position:relative;padding-left:22px;margin:5px 0;line-height:1.42;font-size:14.5px;color:#dde6e2}
+.why li::before{position:absolute;left:2px;top:0;font-weight:800}
+.why li.pro::before{content:"✓";color:var(--best)}
+.why li.con::before{content:"✗";color:var(--blunder)}
+.why li.warn::before{content:"!";color:var(--dub);left:6px}
+.why li.tip::before{content:"→";color:var(--info)}
+.road{background:linear-gradient(160deg,#2c3a2c,#222b29);border:1px solid #4a5a3f;border-radius:16px;padding:14px;margin-bottom:6px}
+.road h2{margin:0 0 4px;font-size:18px}.road h2 span{color:var(--gold)}
+.road .rs{color:var(--muted);font-size:13.5px;margin-bottom:8px;line-height:1.4}
+.step{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #34423a}
+.step .ck{flex:none;width:24px;height:24px;border-radius:50%;border:2px solid #56685d;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#56685d}
+.step.ok .ck{background:var(--best);border-color:var(--best);color:#102015}
+.step b{font-size:15px}.step small{display:block;color:var(--muted);font-size:13px;line-height:1.35;margin-top:2px}
+.rowbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.rowbtns .card{margin:0}
 </style>
 </head>
 <body>
 <div id="app">
   <section id="menu">
-    <h1>♞ Дебютный <span>тренажёр</span></h1>
-    <p class="sub">Выбери дебют и играй: соперник отвечает по-разному, а после каждого хода ты видишь, хороший он был или нет — и почему.</p>
+    <h1>♞ Шахматный <span>тренажёр</span></h1>
+    <p class="sub">Дебюты, ловушки, тактика и партии с разбором. После каждого хода видно, хороший он или плохой — и почему.</p>
     <div class="modes" id="modeSw">
       <button data-m="learn">📖 Обучение (стрелки)</button>
       <button data-m="train">🎯 Тренировка</button>
@@ -135,7 +151,7 @@ svg.arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
   <section id="game" hidden>
     <div class="bar">
-      <button class="back" id="backBtn">‹ Дебюты</button>
+      <button class="back" id="backBtn">‹ Меню</button>
       <div class="title"><b id="opName"></b><small id="lineName"></small></div>
       <button class="mini" id="modeBtn"></button>
     </div>
@@ -320,6 +336,103 @@ function engineMove(s,spread){
   const ok=sc.filter(x=>x.v>=best-(spread||0));
   return ok[Math.floor(Math.random()*ok.length)].m;
 }
+// --- FEN ---
+function parseFen(f){
+  const [bd,t,c,ep,h,n]=f.split(' ');const b=[];
+  for(const ch of bd.replace(/\//g,''))if(/\d/.test(ch))for(let k=0;k<+ch;k++)b.push('');else b.push(ch);
+  return {b,t,c:c==='-'?'':c,ep:ep&&ep!=='-'?(8-(+ep[1]))*8+FILES.indexOf(ep[0]):-1,h:+h||0,n:+n||1};
+}
+// --- разбор ходов: почему ход хороший или плохой ---
+const PV={P:1,N:3,B:3,R:5,Q:9,K:100};
+const NACC={P:'пешку',N:'коня',B:'слона',R:'ладью',Q:'ферзя',K:'короля'};
+const NNOM={P:'пешка',N:'конь',B:'слон',R:'ладья',Q:'ферзь',K:'король'};
+const NGEN={P:'пешки',N:'коня',B:'слона',R:'ладьи',Q:'ферзя',K:'короля'};
+const FEM=u=>u==='P'||u==='R';
+function attacksFrom(b,i){
+  const p=b[i],u=p.toUpperCase(),r=i>>3,f=i&7,out=[];
+  const on=(rr,ff)=>rr>=0&&rr<8&&ff>=0&&ff<8;
+  if(u==='P'){const rr=isW(p)?r-1:r+1;for(const df of[-1,1])if(on(rr,f+df))out.push(rr*8+f+df);return out;}
+  if(u==='N'||u==='K'){for(const[dr,df]of(u==='N'?KN:KG))if(on(r+dr,f+df))out.push((r+dr)*8+f+df);return out;}
+  const dirs=u==='B'?DB:u==='R'?DR:DB.concat(DR);
+  for(const[dr,df]of dirs){let rr=r+dr,ff=f+df;while(on(rr,ff)){out.push(rr*8+ff);if(b[rr*8+ff])break;rr+=dr;ff+=df;}}
+  return out;
+}
+function attackersOf(b,sq,c){const out=[];for(let i=0;i<64;i++){const p=b[i];if(p&&colorOf(p)===c&&attacksFrom(b,i).includes(sq))out.push(i);}return out;}
+// фигура под угрозой: атакована и не защищена, или атакована более дешёвой фигурой
+function enPrise(b,sq){
+  const p=b[sq];if(!p)return null;const u=p.toUpperCase();if(u==='K')return null;
+  const c=colorOf(p),att=attackersOf(b,sq,other(c));if(!att.length)return null;
+  const def=attackersOf(b,sq,c);
+  const cheap=att.reduce((a,i)=>PV[b[i].toUpperCase()]<PV[b[a].toUpperCase()]?i:a,att[0]);
+  if(!def.length||PV[b[cheap].toUpperCase()]<PV[u])return {sq,p:u,by:b[cheap].toUpperCase(),from:cheap,def:def.length>0};
+  return null;
+}
+const hanging=(b,c)=>{const o=[];for(let i=0;i<64;i++)if(b[i]&&colorOf(b[i])===c){const e=enPrise(b,i);if(e)o.push(e);}return o;};
+function undeveloped(s,c){const r=c==='w'?7:0,N=c==='w'?'N':'n',B=c==='w'?'B':'b';let k=0;for(const f of[1,6])if(s.b[r*8+f]===N)k++;for(const f of[2,5])if(s.b[r*8+f]===B)k++;return k;}
+// что делает ход (плюсы)
+function moveFeatures(s,m,list){
+  const out=[],u=m.p.toUpperCase(),me=s.t,after=make(s,m),str=san(s,m,list);
+  if(str.endsWith('#')){out.push('Это мат!');return out;}
+  if(m.cap){const cu=m.cap.toUpperCase();
+    const rec=attackersOf(after.b,m.to,other(me)).length>0;
+    if(!rec)out.push(`Забирает ${NACC[cu]} бесплатно.`);
+    else if(PV[cu]>PV[u])out.push(`Выгодный размен: ${NNOM[u]} берёт ${NACC[cu]}, а ${cu==='Q'?'ферзь':NNOM[cu]} дороже.`);
+    else if(PV[cu]===PV[u])out.push('Равный размен.');
+  }
+  if(str.endsWith('+'))out.push('Шах королю соперника.');
+  if(m.fl==='k'||m.fl==='q')out.push('Рокировка: король спрятан, ладья вступает в игру.');
+  if(s.n<=12){
+    const back=me==='w'?7:0;
+    if((u==='N'||u==='B')&&(m.from>>3)===back)out.push(`Развитие: ${NNOM[u]} выходит в игру.`);
+    if(u==='P'&&[3,4].includes(m.from&7)&&!m.cap&&(m.from>>3)===(me==='w'?6:1))out.push('Пешка занимает центр.');
+  }
+  // новые нападения ходившей фигурой
+  const tg=[],safe=!enPrise(after.b,m.to);
+  if(safe)for(const t of attacksFrom(after.b,m.to)){const q=after.b[t];if(!q||colorOf(q)===me)continue;const qu=q.toUpperCase();
+    if(qu==='K')continue;const e=enPrise(after.b,t);if(e)tg.push(qu);}
+  if(tg.length>=2||(tg.length&&str.endsWith('+')))out.push(`Вилка! Нападение сразу на ${str.endsWith('+')&&tg.length<2?'короля и '+NACC[tg[0]]:tg.slice(0,2).map(x=>NACC[x]).join(' и ')}.`);
+  else if(tg.length)out.push(`Нападает на ${NACC[tg[0]]} — соперник должен защищаться.`);
+  // защита своей фигуры, которая была под ударом
+  if(!m.cap){const before=hanging(s.b,me).filter(h=>h.sq!==m.from),now=hanging(after.b,me);
+    const saved=before.filter(h=>!now.some(x=>x.sq===h.sq));if(saved.length)out.push(`Защищает ${NACC[saved[0].p]}, ${FEM(saved[0].p)?'которая была':'который был'} под ударом.`);
+    const hm=hanging(s.b,me).find(h=>h.sq===m.from);if(hm&&!now.some(x=>x.sq===m.to))out.push(`Уводит ${NACC[u]} из-под удара.`);}
+  return out;
+}
+// нарушения правил дебюта
+function moveWarnings(s,m){
+  const w=[],u=m.p.toUpperCase(),me=s.t;if(s.n>12||m.cap)return w;
+  const und=undeveloped(s,me);
+  if(u==='Q'&&und>=2)w.push('Ранний выход ферзя: соперник будет гонять его и развиваться с темпом.');
+  if(u==='K'&&m.fl!=='k'&&m.fl!=='q'&&s.c.includes(me==='w'?'K':'k'))w.push('Король сходил и потерял право на рокировку.');
+  if(u==='P'&&(m.from&7)===5&&s.n<=10)w.push(`Ход f-пешкой ослабляет вашего короля (диагональ ${me==='w'?'e1–h4':'e8–h5'}).`);
+  if(u==='N'&&((m.to&7)===0||(m.to&7)===7))w.push('Конь на краю доски контролирует мало полей: «конь на краю — доске беда».');
+  if((u==='N'||u==='B')&&(m.from>>3)!==(me==='w'?7:0)&&und>=2)w.push('Эта фигура ходит второй раз, а другие ещё не развиты.');
+  if(u==='P'&&[0,1,6,7].includes(m.from&7)&&s.n<=8&&und>=2)w.push('Ход крайней пешкой в дебюте почти ничего не даёт — лучше развивать фигуры.');
+  return w;
+}
+// полный разбор хода игрока; r — результат analyzeMove
+function explainMove(s,m,r){
+  const list=legal(s),me=s.t,after=make(s,m),cons=[];
+  const pros=moveFeatures(s,m,list);
+  if(r.best&&r.best.endsWith('#'))cons.push('Здесь был мат в один ход — вы его пропустили!');
+  if(r.reply&&r.reply.endsWith('#'))cons.push(`Вы пропускаете мат: соперник ответит ${ru(r.reply)}.`);
+  else if(r.loss>120){
+    const hb=hanging(s.b,me),ha=hanging(after.b,me);
+    const fresh=ha.filter(h=>!hb.some(x=>x.sq===h.sq)||h.sq===m.to);
+    const old=ha.filter(h=>hb.some(x=>x.sq===h.sq)&&h.sq!==m.to);
+    for(const h of fresh.slice(0,2))cons.push(h.def?`${cap(NNOM[h.p])} на ${sqName(h.sq)} под ударом ${NGEN[h.by]} — ${h.by==='P'?'пешка':NNOM[h.by]} дешевле, вы потеряете материал.`:`${cap(NNOM[h.p])} на ${sqName(h.sq)} остаётся без защиты — ${h.by==='P'?'пешка':NNOM[h.by]} просто заберёт ${FEM(h.p)?'её':'его'}.`);
+    for(const h of old.slice(0,1))cons.push(`${cap(NNOM[h.p])} на ${sqName(h.sq)} ${FEM(h.p)?'была':'был'} под ударом ещё до хода, а вы ${FEM(h.p)?'её':'его'} не спасли.`);
+    if(r.replyMove){const rl=legal(after);const f=moveFeatures(after,r.replyMove,rl).filter(x=>!/^Развитие|^Пешка занимает/.test(x));
+      if(f.length)cons.push(`Что будет: соперник ответит ${ru(r.reply)} — ${f.map(x=>x[0].toLowerCase()+x.slice(1)).join(' ')}`);
+      else if(!(r.best&&r.best.endsWith('#')))cons.push(`Что будет: соперник ответит ${ru(r.reply)}, и его позиция станет заметно лучше.`);}
+  }
+  const warn=moveWarnings(s,m);
+  let best=null;
+  if(r.bestMove&&r.loss>45){best={san:r.best,why:moveFeatures(s,r.bestMove,list)};}
+  return {pros,cons,warn,best};
+}
+const cap=x=>x[0].toUpperCase()+x.slice(1);
+const ru=s=>{if(/^O-O/.test(s))return s.replace(/O/g,'0');const RU={K:'Кр',Q:'Ф',R:'Л',B:'С',N:'К'};let r=RU[s[0]]?RU[s[0]]+s.slice(1):s;return r.replace(/=([QRBN])/,(m,p)=>'='+RU[p]);};
 // ==END ENGINE==
 
 // ==DATA==
@@ -857,6 +970,218 @@ const OPENINGS=[
  ]],
  ]},
 ];
+// ---------- ловушки: учимся ставить и не попадаться ----------
+const TRAPS=[
+{id:'legal',name:'Мат Легаля',side:'w',ico:'♘',cat:'trap',
+ desc:'Белые «отдают» ферзя, чтобы поставить мат тремя лёгкими фигурами. Против защиты Филидора со связкой Сg4.',
+ tree:[
+ ['e4','!','Начинаем с центральной пешки.',[
+  ['e5','','',[
+   ['Nf3','!','Нападаем на пешку e5.',[
+    ['d6','','Чёрные защищают e5 пешкой d6.',[
+     ['Bc4','!','Слон нацелен на f7 — именно туда придёт удар.',[
+      ['Bg4','','Чёрные связывают коня f3: кажется, он не может уйти, иначе пропадёт ферзь d1.',[
+       ['Nc3','!','Спокойно развиваемся. Ловушка готова — ждём ошибки соперника.',[
+        ['g6','?','Ошибка! Чёрные теряют время, и теперь всё готово для красивого удара.',[
+         ['Nxe5','!','Жертва ферзя! Конь «вырывается» из связки. Если чёрные заберут ферзя — будет мат.',[
+          ['Bxd1','??','Чёрные забирают ферзя… и получают мат!',[
+           ['Bxf7+','!','Шах! Король вынужден идти на e7.',[
+            ['Ke7','','Единственный ход.',[
+             ['Nd5#','!','Мат Легаля! Три лёгкие фигуры поставили мат без ферзя. Запомни узор: слон f7, кони e5 и d5.'],
+            ]],
+           ]],
+          ],{w:3}],
+          ['dxe5','','Чёрные не взяли ферзя — и правильно сделали.',[
+           ['Qxg4','!','Забираем слона. Белые выиграли пешку и стоят отлично.'],
+          ],{w:1}],
+         ]],
+         ['h3','=','Неплохо — прогоняем слона. Но здесь есть удар сильнее. Подсказка: конь может уйти из связки с ударом!'],
+         ['Bxf7+','?','Рано! После 5...Крxf7 у белых нет продолжения. Сначала 5.Кxe5!'],
+        ],{w:3}],
+        ['Nc6','','Чёрные развиваются правильно — ловушка не сработала.',[
+         ['h3','!','Прогоняем слона и играем дальше. Не каждая ловушка срабатывает — это нормально!'],
+        ],{w:1}],
+       ]],
+      ]],
+     ]],
+    ]],
+   ]],
+  ]],
+ ]],
+ ]},
+{id:'petrov',name:'Ловушка в защите Петрова',side:'w',ico:'♕',cat:'trap',
+ desc:'Чёрные повторяют ходы белых — и попадают под вскрытый шах. Белые выигрывают ферзя.',
+ tree:[
+ ['e4','!','',[['e5','','',[['Nf3','!','Нападаем на e5.',[
+  ['Nf6','','Защита Петрова: чёрные сами нападают на e4.',[
+   ['Nxe5','!','Берём пешку. Посмотрим, не повторит ли соперник наш ход.',[
+    ['Nxe4','?','Чёрные «зеркалят» ход белых — это ошибка!',[
+     ['Qe2','!','Ловушка! Ферзь нападает на коня e4 и стоит на одной линии с королём e8.',[
+      ['Nf6','??','Конь отступает… и линия e открывается!',[
+       ['Nc6+','!','Вскрытый шах! Ферзь e2 шахует короля, а конь c6 нападает на ферзя d8.',[
+        ['Be7','','Чёрные закрываются от шаха.',[
+         ['Nxd8','!','Забираем ферзя! Это ловушка со вскрытым шахом.'],
+        ]],
+       ]],
+      ],{w:3}],
+      ['Qe7','','Чёрные нашли правильную защиту.',[
+       ['Qxe4','!','Забираем коня.',[
+        ['d6','','Пешка нападает на коня e5.',[
+         ['d4','!','Защищаем коня. Белые на пешку больше.'],
+        ]],
+       ]],
+      ],{w:1}],
+     ]],
+    ],{w:3}],
+    ['d6','','Правильно: сначала прогнать коня.',[
+     ['Nf3','!','Конь отходит.',[['Nxe4','','',[['d4','!','Обычная защита Петрова — ловушки уже не будет, позиция равная.']]]]],
+    ],{w:1}],
+   ]],
+  ]],
+ ]]]]]],
+ ]},
+{id:'carotrap',name:'Мат конём в Каро-Канн',side:'w',ico:'♞',cat:'trap',
+ desc:'Пешка e7 связана ферзём e2 — и конь ставит мат на d6. Одна из самых быстрых ловушек.',
+ tree:[
+ ['e4','!','',[['c6','','Защита Каро-Канн.',[['d4','!','Занимаем центр.',[['d5','','',[['Nc3','!','Защищаем e4.',[['dxe4','','',[['Nxe4','!','',[
+  ['Nd7','','Чёрные готовят Кgf6.',[
+   ['Qe2','!','Ставим ловушку! Ферзь встал на линию e — теперь пешка e7 связана с королём. (Минус хода: ферзь загораживает слона f1.)',[
+    ['Ngf6','??','Чёрные попались!',[
+     ['Nd6#','!','Мат! Пешка e7 связана ферзём e2 и не может взять коня, а король окружён своими же фигурами.'],
+    ],{w:3}],
+    ['Ndf6','','Чёрные не попались.',[
+     ['Nxf6+','!','Разменяемся и продолжим обычную партию.'],
+    ],{w:1}],
+   ]],
+   ['Nf3','=','Обычный хороший ход. Но ловушку ставит 5.Фe2!'],
+  ],{w:3}],
+  ['Bf5','','Чёрные сыграли главный вариант — ловушки не будет.',[
+   ['Ng3','!','Нападаем на слона и играем обычную партию.'],
+  ],{w:1}],
+ ]]]]]]]]]]]]]],
+ ]},
+{id:'blackburne',name:'Ловушка Блэкберна',side:'b',ico:'♞',cat:'trap',
+ desc:'Чёрные «подставляют» пешку e5. Если белые её возьмут — ферзь и конь ставят мат.',
+ tree:[
+ ['e4','','',[['e5','!','',[['Nf3','','',[['Nc6','!','Развиваемся и защищаем e5.',[['Bc4','','Итальянская партия: белые целятся на f7.',[
+  ['Nd4','!','Ставим ловушку! Пешка e5 будто беззащитна. (Против сильного соперника ход не лучший, но новички попадаются часто.)',[
+   ['Nxe5','?','Белые жадничают и берут пешку — ловушка начинает работать!',[
+    ['Qg5','!','Ферзь нападает сразу на коня e5 и на пешку g2!',[
+     ['Nxf7','?','Белые продолжают жадничать: конь нападает на ферзя и ладью.',[
+      ['Qxg2','!','Не обращаем внимания на коня! Ферзь бьёт g2 и нападает на ладью h1.',[
+       ['Rf1','','Ладья уходит.',[
+        ['Qxe4+','!','Шах! Ферзь забирает пешку e4.',[
+         ['Be2','','Белые закрываются слоном.',[
+          ['Nf3#','!','Мат! Ловушка Блэкберна сработала.'],
+         ]],
+        ]],
+       ]],
+      ]],
+     ],{w:3}],
+     ['Bxf7+','','Белые шахуют слоном.',[
+      ['Ke7','!','Король уходит. Теперь под ударом конь e5.',[
+       ['O-O','','',[
+        ['Qxe5','!','Ферзь забирает коня. Чёрные выиграли фигуру за пешку.'],
+       ]],
+      ]],
+     ],{w:1}],
+    ]],
+   ],{w:3}],
+   ['Nxd4','','Белые разменяли коня — ловушка не сработала.',[
+    ['exd4','!','Берём обратно и играем дальше.'],
+   ],{w:1}],
+   ['O-O','','Белые не попались и рокируются.',[
+    ['Nf6','!','Развиваемся. Позиция нормальная.'],
+   ],{w:1}],
+  ]],
+ ]]]]]]]]]],
+ ]},
+{id:'elephant',name:'Слоновая ловушка',side:'b',ico:'♝',cat:'trap',
+ desc:'В ферзевом гамбите белые берут «лишнюю» пешку d5 и теряют фигуру из-за шаха слоном.',
+ tree:[
+ ['d4','','',[['d5','!','',[['c4','','Ферзевый гамбит.',[['e6','!','Держим центр.',[['Nc3','','',[['Nf6','!','',[['Bg5','','Белые связывают коня f6.',[
+  ['Nbd7','!','Ставим ловушку! Кажется, что пешка d5 слабая, ведь конь f6 «связан».',[
+   ['cxd5','','',[
+    ['exd5','!','Берём пешкой.',[
+     ['Nxd5','?','Белые попались! Им кажется, что конь f6 связан и не может взять.',[
+      ['Nxd5','!','Берём коня — и отдаём ферзя!',[
+       ['Bxd8','','Белые забирают ферзя…',[
+        ['Bb4+','!','Шах! Белым придётся отдать своего ферзя.',[
+         ['Qd2','','',[
+          ['Bxd2+','!','',[
+           ['Kxd2','','',[
+            ['Kxd8','!','Считаем: чёрные выиграли фигуру. Слоновая ловушка сработала!'],
+           ]],
+          ]],
+         ]],
+        ]],
+       ]],
+      ]],
+     ],{w:3}],
+     ['e3','','Белые не попались.',[
+      ['c6','!','Укрепляем d5. Обычный ферзевый гамбит — играем дальше.'],
+     ],{w:1}],
+    ]],
+   ]],
+  ]],
+  ['Be7','=','Надёжный ход, но ловушку ставит 4...Кbd7.'],
+ ]]]]]]]]]]]]]],
+ ]},
+{id:'fishing',name:'Удочка',side:'b',ico:'♛',cat:'trap',
+ desc:'Конь-приманка на g4. Если белые его возьмут, по линии h врываются ферзь и ладья — мат.',
+ tree:[
+ ['e4','','',[['e5','!','',[['Nf3','','',[['Nc6','!','',[['Bb5','','Испанская партия.',[['Nf6','!','Нападаем на e4.',[['O-O','','Белые рокируются.',[
+  ['Ng4','!','Закидываем «удочку»: конь — приманка.',[
+   ['h3','','Белые нападают на коня.',[
+    ['h5','!','Не уводим коня! Если белые его возьмут, откроется линия h для ладьи и ферзя.',[
+     ['hxg4','?','Белые клюнули на приманку!',[
+      ['hxg4','!','Берём обратно — линия h открыта, ладья h8 уже смотрит на короля.',[
+       ['Nxe5','?','Белые не видят опасности.',[
+        ['Qh4','!','Ферзь врывается на линию h. Грозит мат на h1 или h2!',[
+         ['f3','','Белые пытаются дать королю поле.',[
+          ['g3','!','Пешка закрывает королю путь. Мат на h2 или h1 уже не остановить — «Удочка» сработала!'],
+         ]],
+        ]],
+       ]],
+      ]],
+     ],{w:3}],
+     ['c3','','Белые не стали брать коня.',[
+      ['Bc5','!','Развиваемся. Конь g4 по-прежнему опасен.'],
+     ],{w:1}],
+    ]],
+   ]],
+  ]],
+ ]]]]]]]]]]]]]],
+ ]},
+];
+// ---------- тактические задачи ----------
+const PUZZLES=[
+{t:'Мат в 1 ход',fen:'6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1',sol:['Ra8#'],goal:'mate',task:'Белые ставят мат в 1 ход.',why:'Мат на последней горизонтали: король заперт своими пешками. Всегда проверяй, есть ли у короля «форточка».'},
+{t:'Мат в 1 ход',fen:'r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4',sol:['Qxf7#'],goal:'mate',task:'Белые ставят мат в 1 ход.',why:'Детский мат: f7 защищал только король, а ферзь и слон бьют туда вместе.'},
+{t:'Мат в 1 ход',fen:'6rk/6pp/8/6N1/8/8/8/6K1 w - - 0 1',sol:['Nf7#'],goal:'mate',task:'Белые ставят мат в 1 ход.',why:'Спёртый мат: король окружён своими фигурами, а коня нельзя закрыть.'},
+{t:'Мат в 1 ход',fen:'7k/1Q6/6K1/8/8/8/8/8 w - - 0 1',sol:['Qh7#'],goal:'mate',task:'Белые ставят мат в 1 ход.',why:'Ферзь ставит мат вплотную, а свой король его защищает.'},
+{t:'Мат в 1 ход',fen:'7k/R7/8/8/8/8/8/1R4K1 w - - 0 1',sol:['Rb8#'],goal:'mate',task:'Белые ставят мат в 1 ход.',why:'Ладья a7 держит 7-ю горизонталь, вторая ладья ставит мат на 8-й. Это «линейный мат».'},
+{t:'Мат в 1 ход',fen:'4r1k1/5ppp/8/8/8/8/5PPP/6K1 b - - 0 1',sol:['Re1#'],goal:'mate',task:'Чёрные ставят мат в 1 ход.',why:'Тот же мат на последней горизонтали — но теперь против белых. Запомни: сделай королю «форточку» (h3 или g3).'},
+{t:'Бесплатная фигура',fen:'r1b1kbnr/pppp1ppp/2n5/4p3/3qP3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 4',sol:['Nxd4'],task:'Белые выигрывают материал. Найдите ход.',why:'Ферзь чёрных стоит под ударом коня. Перед каждым ходом смотри: что можно взять?'},
+{t:'Вилка конём',fen:'r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1',sol:['Nc7+','Nxa8'],task:'Белые выигрывают ладью.',why:'Вилка: конь шахует короля и одновременно нападает на ладью. Король уходит — ладья пропадает.'},
+{t:'Вилка пешкой',fen:'6k1/5pp1/3r1n1p/8/4P3/8/5PPP/R5K1 w - - 0 1',sol:['e5'],task:'Белые выигрывают фигуру.',why:'Пешка нападает сразу на ладью и коня. Обе фигуры не спасти — одна пропадёт.'},
+{t:'Двойной удар',fen:'r5k1/6pp/8/8/8/8/6PP/3Q2K1 w - - 0 1',sol:['Qd5+','Qxa8'],task:'Белые выигрывают ладью.',why:'Ферзь шахует и одновременно нападает на ладью a8 по диагонали.'},
+{t:'Сквозной удар',fen:'8/8/8/8/2k3q1/8/8/R6K w - - 0 1',sol:['Ra4+','Rxg4'],task:'Белые выигрывают ферзя.',why:'Сквозной удар (рентген): шах королю, а за ним на той же линии стоит ферзь.'},
+{t:'Связка',fen:'4k3/3q4/8/8/P7/3B4/8/4K3 w - - 0 1',sol:['Bb5'],task:'Белые выигрывают ферзя.',why:'Связка: ферзь закрывает короля и не может уйти с линии. Слон защищён пешкой a4.'},
+];
+// ---------- эндшпиль ----------
+const ENDGAMES=[
+{id:'eq',name:'Мат ферзём',side:'w',ico:'♕',fen:'8/8/8/4k3/8/8/8/Q3K3 w - - 0 1',goal:'mate',
+ desc:'Король и ферзь против короля. План: ферзь ходом коня от короля соперника сужает ему клетки, потом подводим своего короля и ставим мат на краю. Осторожно с патом!'},
+{id:'er',name:'Мат ладьёй',side:'w',ico:'♖',fen:'8/8/8/4k3/8/8/8/R3K3 w - - 0 1',goal:'mate',
+ desc:'Король и ладья против короля. Ладья отрезает короля по линии, свой король встаёт напротив («оппозиция»), и ладья даёт шах — король отступает к краю.'},
+{id:'ep',name:'Пешка в ферзи',side:'w',ico:'♙',fen:'4k3/8/4K3/4P3/8/8/8/8 w - - 0 1',goal:'promote',
+ desc:'Король впереди своей пешки на 6-й горизонтали — это выигрыш. Цель: провести пешку в ферзи. Пешка превращается в ферзя автоматически.'},
+];
+const FREEOPS=[
+{id:'free-w',name:'Партия белыми',side:'w',ico:'♔',free:true,desc:'Партия с компьютером с самого начала. После каждого хода — разбор: что хорошо, что плохо и что лучше.'},
+{id:'free-b',name:'Партия чёрными',side:'b',ico:'♚',free:true,desc:'Партия с компьютером с самого начала. После каждого хода — разбор: что хорошо, что плохо и что лучше.'},
+];
 // ==END DATA==
 
 // ==UI==
@@ -876,12 +1201,11 @@ function build(op){
   const visit=n=>{if(n.byUser&&(BADQ.includes(n.q)||n.q==='='))return;if(!n.kids.length){op.leaves.push(n.key);return;}n.kids.forEach(visit);};
   root.kids.forEach(visit);
 }
-OPENINGS.forEach(build);
+OPENINGS.forEach(build);TRAPS.forEach(build);ENDGAMES.forEach(o=>{o.tree=[];build(o);});FREEOPS.forEach(o=>{o.tree=[];build(o);});
+const ALL=[...OPENINGS,...TRAPS,...ENDGAMES,...FREEOPS];const byId=id=>ALL.find(o=>o.id===id);
 
 const $=s=>document.querySelector(s);
 const GL={k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'};
-const RU={K:'Кр',Q:'Ф',R:'Л',B:'С',N:'К'};
-function ru(s){if(/^O-O/.test(s))return s.replace(/O/g,'0');let r=RU[s[0]]?RU[s[0]]+s.slice(1):s;return r.replace(/=([QRBN])/,(m,p)=>'='+RU[p]);}
 const store={
   get(k,d){try{const v=localStorage.getItem('chessop:'+k);return v?JSON.parse(v):d;}catch(e){return d;}},
   set(k,v){try{localStorage.setItem('chessop:'+k,JSON.stringify(v));}catch(e){}}
@@ -893,26 +1217,52 @@ let MODE=store.get('mode','learn');
 const G={op:null,pos:null,node:null,hist:[],moves:[],sel:-1,busy:false,lock:false,done:false,arrows:[],last:null,attempt:null,feed:[],timer:null,uc:'w'};
 
 // ---------- меню ----------
+const solvedPz=()=>new Set(store.get('pz',[]));
+function roadmap(){
+  const pz=solvedPz().size,opsDone=OPENINGS.filter(o=>explored(o).size>0),w=opsDone.some(o=>o.side==='w'),b=opsDone.some(o=>o.side==='b');
+  const traps=TRAPS.filter(o=>explored(o).size>0).length,eg=ENDGAMES.filter(o=>store.get('won:'+o.id,0)).length,games=store.get('games',0);
+  const steps=[
+    [true,'Главное правило: «шахи, взятия, угрозы»','Перед каждым ходом спроси себя: что атакует соперник? Не остаётся ли моя фигура без защиты? Можно ли что-то взять? До 1000 партии проигрывают из-за зевков, а не из-за дебюта.'],
+    [pz>=PUZZLES.length,`Тактика: решено ${pz} из ${PUZZLES.length}`,'Маты в 1 ход, вилки, связки, сквозной удар — увидеть их за доской важнее всего.'],
+    [w&&b,'Дебют за белых и за чёрных','Пройди хотя бы один дебют каждым цветом: Итальянская или Лондонская белыми, Каро-Канн или защита от детского мата чёрными.'],
+    [traps>=4,`Ловушки: пройдено ${traps} из ${TRAPS.length}`,'Соперники до 1000 часто в них попадаются. Учимся ставить ловушки сами и не попадать в чужие.'],
+    [eg>=2,`Эндшпиль: освоено ${eg} из ${ENDGAMES.length}`,'Мат ферзём и ладьёй нужно уметь поставить уверенно, иначе выигранная партия кончится патом.'],
+    [games>=5,`Партии с разбором: сыграно ${games} из 5`,'Играй с компьютером и читай разбор. Потом на chess.com выбирай контроль 10–15 минут, а не блиц.'],
+  ];
+  return `<div class="road"><h2>🎯 Путь к <span>1000</span> на chess.com</h2><div class="rs">Проходи шаги по порядку — галочки ставятся сами.</div>${steps.map((x,i)=>`<div class="step${x[0]?' ok':''}"><div class="ck">${x[0]?'✓':i+1}</div><div><b>${x[1]}</b><small>${x[2]}</small></div></div>`).join('')}</div>`;
+}
 function renderMenu(){
   document.querySelectorAll('#modeSw button').forEach(b=>b.classList.toggle('on',b.dataset.m===MODE));
-  const html=[];
-  const saved=OPENINGS.filter(o=>store.get('save:'+o.id,null));
+  const html=[roadmap()];
+  const saved=ALL.filter(o=>store.get('save:'+o.id,null));
   if(saved.length){html.push('<div class="group">Незаконченные партии</div>');
     for(const op of saved){const sv=store.get('save:'+op.id);
       html.push(`<button class="card resume" data-id="${op.id}" data-resume="1"><div class="top"><div class="ico ${op.side}">▶</div><div><div class="nm">Продолжить: ${op.name}</div><div class="ds" style="margin-top:2px">Ходов сделано: ${Math.ceil(sv.moves.length/2)} · вы играете ${op.side==='w'?'белыми':'чёрными'}</div></div></div></button>`);}}
-  for(const side of['w','b']){
-    html.push(`<div class="group">${side==='w'?'Играем белыми':'Играем чёрными'}</div>`);
-    for(const op of OPENINGS.filter(o=>o.side===side)){
+  html.push('<div class="group">Партия с компьютером — с разбором каждого хода</div><div class="rowbtns">');
+  for(const op of FREEOPS)html.push(`<button class="card" data-id="${op.id}"><div class="top"><div class="ico ${op.side}">${op.ico}\uFE0E</div><div class="nm">${op.name}</div></div></button>`);
+  html.push('</div>');
+  const pz=solvedPz();
+  html.push(`<div class="group">Тактика</div><button class="card" data-puz="1"><div class="top"><div class="ico w">⚔</div><div class="nm">Задачи: мат, вилки, связки</div></div>
+    <div class="ds">${PUZZLES.length} задач с объяснением. Тактика решает партии до 1000 — здесь учимся видеть удары.</div><div class="prog"><i style="width:${Math.round(pz.size/PUZZLES.length*100)}%"></i></div>
+    <div class="pmeta"><span>Решено: ${pz.size} из ${PUZZLES.length}</span><span></span></div></button>`);
+  for(const grp of [['Ловушки: ставим сами и не попадаемся',TRAPS],['Дебюты за белых',OPENINGS.filter(o=>o.side==='w')],['Дебюты за чёрных',OPENINGS.filter(o=>o.side==='b')]]){
+    html.push(`<div class="group">${grp[0]}</div>`);
+    for(const op of grp[1]){const side=op.side;
       const ex=explored(op),done=op.leaves.filter(k=>ex.has(k)).length,st=statsOf(op);
       const pct=Math.round(done/op.leaves.length*100);
       html.push(`<button class="card" data-id="${op.id}"><div class="top"><div class="ico ${side}">${op.ico}︎</div><div class="nm">${op.name}</div></div>
       <div class="ds">${op.desc}</div><div class="prog"><i style="width:${pct}%"></i></div>
-      <div class="pmeta"><span>Варианты: ${done} из ${op.leaves.length}</span><span>${st.t?'Точность '+Math.round(st.c/st.t*100)+'%':'Ещё не играли'}</span></div></button>`);
+      <div class="pmeta"><span>${op.cat==='trap'?'Ловушка '+(op.side==='w'?'за белых':'за чёрных')+' · ':''}Варианты: ${done} из ${op.leaves.length}</span><span>${st.t?'Точность '+Math.round(st.c/st.t*100)+'%':'Ещё не играли'}</span></div></button>`);
     }
   }
+  html.push('<div class="group">Эндшпиль: доводим партию до победы</div>');
+  for(const op of ENDGAMES){const ok=store.get('won:'+op.id,0);
+    html.push(`<button class="card" data-id="${op.id}"><div class="top"><div class="ico w">${op.ico}\uFE0E</div><div class="nm">${op.name}</div></div><div class="ds">${op.desc}</div><div class="pmeta"><span>${ok?'✓ Получилось '+ok+' раз':'Ещё не получилось'}</span><span></span></div></button>`);}
   $('#list').innerHTML=html.join('');
 }
-$('#list').addEventListener('click',e=>{const c=e.target.closest('.card');if(!c)return;const op=OPENINGS.find(o=>o.id===c.dataset.id);
+$('#list').addEventListener('click',e=>{const c=e.target.closest('.card');if(!c)return;
+  if(c.dataset.puz){const sv=solvedPz();let i=PUZZLES.findIndex((p,k)=>!sv.has(k));openPuzzle(i<0?0:i);return;}
+  const op=byId(c.dataset.id);
   if(c.dataset.resume)resumeGame(op);else openGame(op);});
 $('#modeSw').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;MODE=b.dataset.m;store.set('mode',MODE);renderMenu();});
 
@@ -1016,7 +1366,7 @@ function applyPly(m,str,anim){
 const GRADE={'!':['best','Лучший ход'],'':['good','Хороший ход'],'=':['good','Хороший ход'],'?!':['dub','Сомнительно'],'?':['bad','Ошибка'],'??':['blunder','Грубая ошибка']};
 function addEntry(cls,badge,mv,text){G.feed.push({cls,badge,mv,text});renderFeed();}
 function renderFeed(){
-  $('#feed').innerHTML=G.feed.map(f=>`<div class="entry ${f.cls}"><div class="hd">${f.badge?`<span class="badge">${f.badge}</span>`:''}${f.mv?`<span class="mv">${f.mv}</span>`:''}</div>${f.text?`<p>${f.text}</p>`:''}</div>`).join('');
+  $('#feed').innerHTML=G.feed.map(f=>`<div class="entry ${f.cls}"><div class="hd">${f.badge?`<span class="badge">${f.badge}</span>`:''}${f.mv?`<span class="mv">${f.mv}</span>`:''}</div>${f.text?(f.text[0]==='<'?f.text:`<p>${f.text}</p>`):''}</div>`).join('');
 }
 function renderMoves(){
   const out=[];
@@ -1025,7 +1375,18 @@ function renderMoves(){
 }
 function lineName(){let n=G.node;while(n){if(n.name)return n.name;n=n.parent;}return '';}
 function renderInfo(){
-  $('#lineName').textContent=G.free?'Свободная игра против компьютера':(lineName()||(G.op.side==='w'?'Вы играете белыми':'Вы играете чёрными'));
+  if(G.mode==='puzzle'){const P=PUZZLES[G.pi],sv=solvedPz();document.querySelector('.stats').hidden=false;
+    $('#lineName').textContent=P.t;$('#opName').textContent=`Задача ${G.pi+1} из ${PUZZLES.length}`;
+    $('#stVar').textContent=`${sv.size}/${PUZZLES.length}`;$('#stAcc').textContent=store.get('pzf',0)+'';
+    $('#stVar').nextElementSibling.textContent='задач решено';$('#stAcc').nextElementSibling.textContent='с 1-й попытки';
+    $('#progTxt').textContent='⚔ Тактика';
+    const dot=`<span class="dot" style="background:${G.pos.t==='w'?'#f5f2ea':'#1d1d1d'}"></span>`;
+    $('#turnTxt').innerHTML=G.done?'Задача решена':G.lock?dot+'Верните ход и попробуйте снова':dot+(G.pos.t===G.uc?'Ваш ход':'Ход соперника…');
+    $('#undoBtn').classList.toggle('pulse',G.lock&&!G.busy);
+    $('#endRow').hidden=!G.done;$('#contBtn').hidden=true;$('#nextBtn').textContent='Следующая задача ›';$('#hintBtn').disabled=G.done;return;}
+  document.querySelector('.stats').hidden=!!(G.op.free||G.op.fen);
+  $('#stVar').nextElementSibling.textContent='вариантов пройдено';$('#stAcc').nextElementSibling.textContent='верно с 1-й попытки';$('#nextBtn').textContent='Следующий вариант ›';
+  $('#lineName').textContent=G.free?(G.op.fen?'Цель: '+(G.op.goal==='mate'?'поставить мат':'провести пешку в ферзи'):'Партия против компьютера'):(lineName()||(G.op.side==='w'?'Вы играете белыми':'Вы играете чёрными'));
   const ex=explored(G.op),done=G.op.leaves.filter(k=>ex.has(k)).length;
   $('#stVar').textContent=`${done}/${G.op.leaves.length}`;
   const st=statsOf(G.op);$('#stAcc').textContent=st.t?`${Math.round(st.c/st.t*100)}%`:'—';
@@ -1049,6 +1410,7 @@ function recordAttempt(ok){
   G.attempt.counted=true;const st=statsOf(G.op);st.t++;if(ok&&!G.attempt.hinted)st.c++;store.set('st:'+G.op.id,st);
 }
 function userTurn(){
+  if(G.mode==='puzzle'){G.busy=false;G.lock=false;G.arrows=[];renderBoard();renderInfo();return;}
   if(G.free)return freeUserTurn();
   G.busy=false;G.lock=false;G.attempt={counted:false,hinted:false};
   G.arrows=MODE==='learn'?hintArrows():[];
@@ -1056,6 +1418,7 @@ function userTurn(){
   renderBoard();renderInfo();
 }
 async function onUserMove(m,anim){
+  if(G.mode==='puzzle')return puzzleMove(m,anim);
   if(G.free)return freeUserMove(m,anim);
   const before=G.pos,list=legal(before),str=san(before,m,list);
   const child=G.node.kids.find(k=>normSan(k.san)===normSan(str));
@@ -1092,15 +1455,13 @@ async function onUserMove(m,anim){
     const r=analyzeMove(before,m);
     G.feed.pop();
     const best=bookBest(G.node).map(k=>ru(k.san)).join(' или ');
-    let cls,b,t;
+    let [cls,b,t]=gradeOf(r.loss);
     if(r.loss<=45){cls='good';b='Неплохо';t='Ход неплохой, но его нет в разобранной теории.';}
-    else if(r.loss<=120){cls='dub';b='Неточность';t='Не лучший ход: позиция становится хуже.';}
-    else if(r.loss<=250){cls='bad';b='Ошибка';t='Этот ход заметно ухудшает позицию.';}
-    else{cls='blunder';b='Зевок';t='Этот ход теряет материал!';}
-    if(r.loss>120&&r.reply){t+=` Например, соперник ответит <b>${ru(r.reply)}</b>.`;
-      if(r.replyMove)G.arrows=[{from:r.replyMove.from,to:r.replyMove.to,red:true}];}
-    if(best)t+=` По теории здесь играют: <b>${best}</b>.`;
-    addEntry(cls,b,lbl,t);
+    if(r.loss>120&&r.replyMove)G.arrows=[{from:r.replyMove.from,to:r.replyMove.to,red:true}];
+    const ex=explainMove(before,m,r);
+    const bk=bookBest(G.node)[0];
+    if(bk)ex.warn.push(`По теории здесь играют <b>${best}</b>: ${lc(bk.c)}`);
+    addEntry(cls,b,lbl,whyHtml(r.loss<=45||!(ex.pros.length||ex.cons.length)?t:'',ex,true));
     addEntry('info','Что дальше','','Нажмите «↶ Назад», чтобы вернуть ход и попробовать снова.');
     G.busy=false;renderBoard();renderInfo();
   }
@@ -1149,19 +1510,22 @@ function saveGame(){store.set('save:'+G.op.id,{moves:G.moves.slice(),fs:G.freeSt
 function freeArrows(){const m=engineMove(G.pos);return m?[{from:m.from,to:m.to}]:[];}
 function gameOverText(){
   const s=G.pos,ms=legal(s);
-  if(!ms.length){if(inCheck(s))return s.t===G.uc?'Мат. Компьютер выиграл — посмотрите, где была ошибка, и нажмите «↶ Назад».':'🏆 Мат! Вы победили!';return 'Пат — ничья.';}
+  if(!ms.length){if(inCheck(s))return s.t===G.uc?'Мат. Компьютер выиграл — посмотрите, где была ошибка, и нажмите «↶ Назад».':'🏆 Мат! Вы победили!';return 'Пат — ничья. У короля соперника не осталось ходов, но шаха нет. Всегда оставляй ему хотя бы одно поле, пока не ставишь мат!';}
   if(s.h>=100)return 'Ничья: 50 ходов без взятий и ходов пешками.';
   const left=s.b.filter(Boolean);if(left.length===2)return 'Ничья: остались одни короли.';
   return null;
 }
-function endGame(t){
+function endGame(t,win){
   G.over=true;G.done=true;G.busy=false;G.arrows=[];
+  if(G.op.fen&&win)store.set('won:'+G.op.id,store.get('won:'+G.op.id,0)+1);
+  if(G.op.free)store.set('games',store.get('games',0)+1);
   try{localStorage.removeItem('chessop:save:'+G.op.id);}catch(e){}
   addEntry('done','Партия окончена','',t);renderBoard();renderInfo();
 }
 function startFree(){
   G.free=true;G.freeStart=G.moves.length;G.done=false;G.over=false;G.lock=false;
-  G.feed=[{cls:'info',badge:'▶ Играем дальше',mv:'',text:'Теперь вы играете против компьютера. После каждого хода — оценка, а если ошибётесь, красная стрелка покажет, что может произойти. Партия сохраняется: её можно продолжить позже из меню.'}];
+  const fresh=G.op.free||G.op.fen;
+  G.feed=[{cls:'info',badge:fresh?(G.uc==='w'?'Вы — белые':'Вы — чёрные'):'▶ Играем дальше',mv:'',text:(fresh?G.op.desc+' ':'Теперь вы играете против компьютера. ')+'После каждого хода — разбор: зелёным что хорошо, красным что плохо, и какой ход был лучше. Партия сохраняется — её можно продолжить позже из меню.'}];
   renderFeed();saveGame();
   if(G.pos.t===G.uc)freeUserTurn();else{G.busy=true;renderInfo();delay(500).then(compMove);}
 }
@@ -1171,6 +1535,22 @@ function freeUserTurn(){
   G.arrows=MODE==='learn'?freeArrows():[];
   renderBoard();renderInfo();
 }
+const lc=x=>x[0].toLowerCase()+x.slice(1);
+function whyHtml(head,ex,noBest){
+  const li=[];
+  ex.pros.forEach(x=>li.push(`<li class="pro">${x}</li>`));
+  ex.cons.forEach(x=>li.push(`<li class="con">${x}</li>`));
+  ex.warn.forEach(x=>li.push(`<li class="warn">${x}</li>`));
+  if(ex.best&&!noBest)li.push(`<li class="tip">Лучше было <b>${ru(ex.best.san)}</b>${ex.best.why.length?' — '+ex.best.why.map(lc).join(' '):'.'}</li>`);
+  return (head?`<p>${head}</p>`:'')+(li.length?`<ul class="why">${li.join('')}</ul>`:'');
+}
+function gradeOf(loss){
+  if(loss<=10)return ['best','Лучший ход','Отличный ход — компьютер сыграл бы так же.'];
+  if(loss<=45)return ['good','Хороший ход','Хороший ход.'];
+  if(loss<=120)return ['dub','Неточность','Не лучший ход: позиция становится немного хуже.'];
+  if(loss<=250)return ['bad','Ошибка','Этот ход заметно ухудшает позицию.'];
+  return ['blunder','Зевок','Этот ход теряет материал!'];
+}
 async function freeUserMove(m,anim){
   const before=G.pos,str=san(before,m),lbl=label(before,str);
   G.arrows=[];G.feed=[];
@@ -1179,19 +1559,13 @@ async function freeUserMove(m,anim){
   await delay(60);
   const r=analyzeMove(before,m);
   G.feed.pop();
-  let cls,b,t;
-  if(r.loss<=10){cls='best';b='Лучший ход';t='Отличный ход — компьютер сыграл бы так же.';}
-  else if(r.loss<=45){cls='good';b='Хороший ход';t='Хороший ход.';}
-  else if(r.loss<=120){cls='dub';b='Неточность';t='Не лучший ход: позиция становится хуже.';}
-  else if(r.loss<=250){cls='bad';b='Ошибка';t='Этот ход заметно ухудшает позицию.';}
-  else{cls='blunder';b='Зевок';t='Этот ход теряет материал!';}
-  const warn=r.loss>120;
-  if(warn&&r.reply){t+=` Смотрите, что может произойти: соперник ответит <b>${ru(r.reply)}</b>.`;
-    if(r.replyMove)G.arrows=[{from:r.replyMove.from,to:r.replyMove.to,red:true}];}
-  if(r.loss>45&&r.best)t+=` Лучше было <b>${ru(r.best)}</b>.`;
-  if(warn)t+=' Можно нажать «↶ Назад» и переходить.';
-  addEntry(cls,b,lbl,t);saveGame();renderBoard();
-  const over=gameOverText();if(over)return endGame(over);
+  const [cls,b,t]=gradeOf(r.loss),warn=r.loss>120;
+  const ex=explainMove(before,m,r);
+  if(warn&&r.replyMove)G.arrows=[{from:r.replyMove.from,to:r.replyMove.to,red:true}];
+  if(warn)ex.warn.push(r.loss>250?'Перед ходом проверяй: что атакует соперник? Можно нажать «↶ Назад» и переходить.':'Можно нажать «↶ Назад» и переходить.');
+  addEntry(cls,b,lbl,whyHtml(ex.pros.length||ex.cons.length?'':t,ex));saveGame();renderBoard();
+  if(G.op.goal==='promote'&&m.promo)return endGame('🏆 Пешка стала ферзём! Дальше — мат ферзём, его вы уже умеете.',true);
+  const over=gameOverText();if(over)return endGame(over,/Вы победили/.test(over));
   G.busy=!warn;renderInfo();
   await delay(warn?1800:450);
   if(!G.free||G.pos.t===G.uc)return;
@@ -1200,12 +1574,12 @@ async function freeUserMove(m,anim){
 }
 function compMove(){
   if(!G.free)return;
-  const m=engineMove(G.pos,15);if(!m)return freeUserTurn();
-  const str=san(G.pos,m),lbl=label(G.pos,str);
-  const desc=[];if(m.cap)desc.push('Забирает '+PNAME[m.cap.toLowerCase()]+'.');
+  const m=engineMove(G.pos,G.op.fen?0:15);if(!m)return freeUserTurn();
+  const before=G.pos,str=san(before,m),lbl=label(before,str);
+  const f=moveFeatures(before,m,legal(before));
   applyPly(m,str,true);
-  if(/#$/.test(str))desc.push('Мат.');else if(/\+$/.test(str))desc.push('Шах!');
-  addEntry('opp','Ход компьютера',lbl,desc.join(' '));saveGame();
+  const th=f.filter(x=>/Нападает|Вилка|Шах|мат/.test(x));
+  addEntry(th.length?'opperr':'opp',th.length?'Ход компьютера — угроза!':'Ход компьютера',lbl,f.length?`<ul class="why">${f.map(x=>`<li class="${/Нападает|Вилка|Шах|мат/.test(x)?'con':'pro'}">${x}</li>`).join('')}</ul>`:'');saveGame();
   freeUserTurn();
 }
 function resumeGame(op){
@@ -1223,6 +1597,38 @@ function resumeGame(op){
   G.feed=[{cls:'info',badge:'▶ Партия продолжается',mv:'',text:'Вы вернулись к своей партии против компьютера.'}];renderFeed();
   if(G.pos.t===G.uc)freeUserTurn();else{G.busy=true;renderInfo();delay(500).then(compMove);}
 }
+// ---------- задачи ----------
+function openPuzzle(i){
+  G.op={id:'puzzles',name:'Тактика',side:'w',leaves:[],root:{kids:[]}};
+  $('#menu').hidden=true;$('#game').hidden=false;window.scrollTo(0,0);
+  const P=PUZZLES[i];
+  clearTimeout(G.timer);
+  G.mode='puzzle';G.pi=i;G.step=0;G.fails=0;G.uc=P.fen.split(' ')[1];G.pos=parseFen(P.fen);G.node=G.op.root;
+  G.hist=[];G.moves=[];G.sel=-1;G.last=null;G.done=false;G.over=false;G.free=false;G.lock=false;G.busy=false;G.arrows=[];
+  G.feed=[{cls:'info',badge:P.t,mv:'',text:P.task}];
+  renderFeed();renderMoves();resize();renderBoard();renderInfo();
+}
+async function puzzleMove(m,anim){
+  const P=PUZZLES[G.pi],before=G.pos,str=san(before,m),lbl=label(before,str);
+  G.arrows=[];applyPly(m,str,anim);
+  const ok=normSan(str)===normSan(P.sol[G.step])||(P.goal==='mate'&&str.endsWith('#'));
+  if(ok){
+    G.step++;
+    if(G.step>=P.sol.length||str.endsWith('#')){
+      G.done=true;const sv=solvedPz();if(!sv.has(G.pi)&&!G.fails)store.set('pzf',store.get('pzf',0)+1);sv.add(G.pi);store.set('pz',[...sv]);
+      addEntry('best','✓ Решено!',lbl,P.why);renderBoard();renderInfo();return;}
+    addEntry('best','Верно!',lbl,'Отлично, продолжайте!');
+    G.busy=true;renderInfo();await delay(700);
+    const rm=engineMove(G.pos,0);const rs=san(G.pos,rm),rl=label(G.pos,rs);applyPly(rm,rs,true);
+    addEntry('opp','Ответ соперника',rl,'');G.busy=false;renderInfo();return;
+  }
+  G.fails++;G.lock=true;G.busy=true;addEntry('info','Проверяю ход…',lbl,'');renderInfo();
+  await delay(60);
+  const r=analyzeMove(before,m);G.feed.pop();
+  if(r.loss>120&&r.replyMove)G.arrows=[{from:r.replyMove.from,to:r.replyMove.to,red:true}];
+  addEntry('bad','Не то',lbl,whyHtml('Этот ход не решает задачу. Нажмите «↶ Назад» и попробуйте ещё раз.',explainMove(before,m,r),true));
+  G.busy=false;renderBoard();renderInfo();
+}
 function undo(){
   if(G.busy)return;
   clearTimeout(G.timer);
@@ -1232,12 +1638,14 @@ function undo(){
   if(h.pos.t!==G.uc){restart();return;}
   G.pos=h.pos;G.node=h.node;G.moves.length=h.ml;G.last=h.last;G.done=false;G.over=false;G.free=!!h.free;
   if(G.free)saveGame();
+  if(G.mode==='puzzle'){G.step=Math.floor((G.moves.length+1)/2);G.feed=[{cls:'info',badge:'Ход возвращён',mv:'',text:PUZZLES[G.pi].task+' Попробуйте ещё раз.'}];renderFeed();renderMoves();return userTurn();}
   G.feed=[{cls:'info',badge:'Ход возвращён',mv:'',text:G.free?(MODE==='learn'?'Зелёная стрелка показывает ход, который советует компьютер.':'Найдите ход получше. Если трудно — «💡 Подсказка».'):MODE==='learn'?'Зелёная стрелка показывает ход по теории.':'Попробуйте найти лучший ход. Если трудно — «💡 Подсказка».'}];
   renderFeed();renderMoves();userTurn();
 }
 function hint(){
   if(G.busy||G.done)return;
   if(G.lock){addEntry('info','Подсказка','','Сначала верните ход кнопкой «↶ Назад».');return;}
+  if(G.mode==='puzzle'){const m=findMove(G.pos,PUZZLES[G.pi].sol[G.step]);G.fails++;G.arrows=[{from:m.from,to:m.to}];renderBoard();addEntry('info','💡 Подсказка','','Зелёная стрелка показывает решение.');return;}
   if(G.free){const m=engineMove(G.pos);if(!m)return;G.arrows=[{from:m.from,to:m.to}];renderBoard();
     addEntry('info','💡 Подсказка','',`Компьютер советует: <b>${ru(san(G.pos,m))}</b>.`);return;}
   const best=bookBest(G.node);if(!best.length)return;
@@ -1247,10 +1655,11 @@ function hint(){
 }
 function restart(noStart){
   clearTimeout(G.timer);
-  G.pos=startPos();G.node=G.op.root;G.hist=[];G.moves=[];G.sel=-1;G.last=null;G.done=false;G.over=false;G.free=false;G.lock=false;G.busy=false;G.arrows=[];
+  G.pos=G.op.fen?parseFen(G.op.fen):startPos();G.node=G.op.root;G.mode=null;G.hist=[];G.moves=[];G.sel=-1;G.last=null;G.done=false;G.over=false;G.free=false;G.lock=false;G.busy=false;G.arrows=[];
   G.feed=[{cls:'info',badge:G.op.side==='w'?'Вы — белые':'Вы — чёрные',mv:'',text:G.op.desc}];
   renderFeed();renderMoves();resize();
   if(noStart===true)return;
+  if(G.op.free||G.op.fen)return startFree();
   if(G.uc==='b'){G.busy=true;renderBoard();renderInfo();delay(700).then(oppMove);}
   else userTurn();
 }
@@ -1261,12 +1670,12 @@ function openGame(op){
   window.scrollTo(0,0);
   restart();
 }
-$('#backBtn').onclick=()=>{clearTimeout(G.timer);$('#game').hidden=true;$('#menu').hidden=false;renderMenu();};
+$('#backBtn').onclick=()=>{clearTimeout(G.timer);G.mode=null;$('#game').hidden=true;$('#menu').hidden=false;renderMenu();};
 $('#undoBtn').onclick=undo;
 $('#hintBtn').onclick=hint;
-$('#againBtn').onclick=()=>restart();
-$('#nextBtn').onclick=()=>restart();
-$('#restartBtn').onclick=()=>restart();
+$('#againBtn').onclick=()=>G.mode==='puzzle'?openPuzzle(G.pi):restart();
+$('#nextBtn').onclick=()=>G.mode==='puzzle'?openPuzzle((G.pi+1)%PUZZLES.length):restart();
+$('#restartBtn').onclick=()=>G.mode==='puzzle'?openPuzzle(G.pi):restart();
 $('#contBtn').onclick=startFree;
 $('#modeBtn').onclick=()=>{MODE=MODE==='learn'?'train':'learn';store.set('mode',MODE);
   addEntry('info',MODE==='learn'?'📖 Режим обучения':'🎯 Режим тренировки','',MODE==='learn'?'Зелёные стрелки показывают ход по теории.':'Стрелок нет — вспоминайте сами. Считается точность с первой попытки.');
